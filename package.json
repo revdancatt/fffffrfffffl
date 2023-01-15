@@ -1,0 +1,25 @@
+{
+  "name": "fffffrfffffl",
+  "version": "0.0.1",
+  "description": "A test of sorts",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://revdancatt@github.com/revdancatt/fffffrfffffl.git"
+  },
+  "keywords": [
+    "genartclub"
+  ],
+  "author": "revdancatt",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/revdancatt/fffffrfffffl/issues"
+  },
+  "homepage": "https://github.com/revdancatt/fffffrfffffl#readme",
+  "devDependencies": {
+    "standard": "^17.0.0"
+  }
+}
