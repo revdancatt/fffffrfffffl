@@ -1,4 +1,4 @@
-/* global preloadImagesTmr fxhash fxrand paper1Loaded noise palettes */
+/* global preloadImagesTmr fxhash fxrand paper1Loaded noise palettes Blob */
 
 //
 //  fxhash - fffffrfffffl
@@ -98,10 +98,11 @@ const makeFeatures = () => {
     }
   }
 
-  features.layers = 6
+  features.layers = Math.floor((fxrand() * 6 + fxrand() * 6) / 2) + 2
 
   // We need something to hold all the lines
   features.lineHolder = []
+  features.linesSet = false
 
   // got through the palettes, deleting any that are too small
   for (let i = 0; i < palettes.length; i++) {
@@ -152,7 +153,7 @@ const makeFeatures = () => {
       features.perlinRotationOffsets.push({
         x: features.perlinRotationOffsets[0].x + (i * 0.01),
         y: features.perlinRotationOffsets[0].y + (i * 0.005),
-        scale: features.perlinRotationOffsets[0].scale + (i * 0.0)
+        scale: features.perlinRotationOffsets[0].scale + (i * 0.01)
       })
     }
   }
@@ -388,100 +389,156 @@ const drawCanvas = async () => {
     ctx.fillRect(0, 0, w, h)
   }
 
-  // Set the line width and colour
+  // Calculate all the line positions
+  if (!features.linesSet) {
+    for (let layer = 0; layer < features.layers; layer++) {
+      // Set the line colour
+      features.lineHolder[layer].colour = features.palette[layer]
+      //   Loop through the squares
+      for (let i = 0; i < features.squares[layer].length; i++) {
+        const square = features.squares[layer][i]
+        // Calculate the square size
+        square.size = square.corners.tr.x - square.corners.tl.x
+        // Now I want to draw lines from square.size off from the corners
+        const outterCorners = {
+          tl: {
+            x: -square.size / 2 * w - square.size * w,
+            y: -square.size / 2 * w - square.size * w
+          },
+          tr: {
+            x: square.size / 2 * w + square.size * w,
+            y: -square.size / 2 * w - square.size * w
+          },
+          bl: {
+            x: -square.size / 2 * w - square.size * w,
+            y: square.size / 2 * w + square.size * w
+          },
+          br: {
+            x: square.size / 2 * w + square.size * w,
+            y: square.size / 2 * w + square.size * w
+          }
+        }
+
+        // These translation is from when we were drawing the squares
+        // here, but now we are drawing them later. We should probably
+        // get rid of this. But for the moment, it's fine.
+        ctx.save()
+        ctx.translate(square.middle.x * w, square.middle.y * w)
+
+        // This is the polygon that we're going to use to cull the lines
+        const cullingPoly = [
+          [-square.size / 2 * w, -square.size / 2 * w],
+          [square.size / 2 * w, -square.size / 2 * w],
+          [square.size / 2 * w, square.size / 2 * w],
+          [-square.size / 2 * w, square.size / 2 * w]
+        ]
+
+        // Now we're going to make 30 vertical lines, moving our way from the corners
+        const lines = 30
+        const lineStep = (outterCorners.tr.x - outterCorners.tl.x) / lines
+
+        // Now the rotation
+        ctx.save()
+        ctx.rotate(square.rotate * Math.PI / 180)
+        // Make the lines
+        for (let j = 0; j < lines; j++) {
+          const line = {
+            p1: {
+              x: outterCorners.tl.x + (j * lineStep),
+              y: outterCorners.tl.y
+            },
+            p2: {
+              x: outterCorners.bl.x + (j * lineStep),
+              y: outterCorners.bl.y
+            }
+          }
+          // Keep the stuff inside the cullingPoly, throw away the ends that
+          // all outside of them.
+          // Note, this is totally bugged and sometimes makes _all_ the lines
+          // disappear. But, I like the result, so I'm going to leave it for now.
+          const newLine = faultyLineIntersectsPoly(line, cullingPoly)
+          // We need to reverse all the transformations and lines to get _back_
+          // to the actual screen coordinates.
+          if (newLine) {
+            const screenLine = {
+              p1: getTransformToScreen(newLine.p1.x, newLine.p1.y, square.rotate * Math.PI / 180, square.middle.x * w, square.middle.y * w),
+              p2: getTransformToScreen(newLine.p2.x, newLine.p2.y, square.rotate * Math.PI / 180, square.middle.x * w, square.middle.y * w)
+            }
+            features.lineHolder[layer].lines.push(screenLine)
+          }
+        }
+        ctx.restore()
+        ctx.restore()
+      }
+    }
+
+    // Now we're going to reposition the top square of lines to rotate
+    // then by 90 degrees, because I like how it looks
+    const positionedLineHolder = []
+    // Now that we have it all go through the lines shoft around the
+    // top ones
+    for (let layer = 0; layer < features.layers; layer++) {
+      positionedLineHolder.push({
+        lines: [],
+        colour: features.palette[layer]
+      })
+      // This allows us to rotate the top lines
+      for (let i = 0; i < features.lineHolder[layer].lines.length; i++) {
+        const line = features.lineHolder[layer].lines[i]
+        //   Push the points of the line into the array
+        const thisLine = []
+        if (line.p1.y < (w - (features.sideBorder * w) || line.p2.y < w - (features.sideBorder * w))) {
+          thisLine.push({
+            x: (line.p1.y - (features.topBottomBorder * w) + (features.sideBorder * w)) / w,
+            y: line.p1.x / h
+          })
+          thisLine.push({
+            x: (line.p2.y - (features.topBottomBorder * w) + (features.sideBorder * w)) / w,
+            y: line.p2.x / h
+          })
+        } else {
+          thisLine.push({
+            x: line.p1.x / w,
+            y: line.p1.y / h
+          })
+          thisLine.push({
+            x: line.p2.x / w,
+            y: line.p2.y / h
+          })
+        }
+        positionedLineHolder[layer].lines.push(thisLine)
+      }
+    }
+    // Now we store all the lines with their points in the line holder
+    // so we can draw them later
+    features.lineHolder = positionedLineHolder
+    features.linesSet = true
+  }
+
+  // Now we need to draw all the lines
+  // Set the line width
   ctx.lineWidth = w / 400
   // Set the blend mode to multiply
-  // ctx.globalCompositeOperation = 'multiply'
-  // Draw the squares
-
+  const startTime = new Date().getTime()
   for (let layer = 0; layer < features.layers; layer++) {
-    ctx.strokeStyle = features.palette[layer]
-    features.lineHolder[layer].colour = features.palette[layer]
-
-    for (let i = 0; i < features.squares[layer].length; i++) {
-      const square = features.squares[layer][i]
-      // Calculate the square size
-      square.size = square.corners.tr.x - square.corners.tl.x
-      // Now I want to draw lines from square.size off from the corners
-      const outterCorners = {
-        tl: {
-          x: -square.size / 2 * w - square.size * w,
-          y: -square.size / 2 * w - square.size * w
-        },
-        tr: {
-          x: square.size / 2 * w + square.size * w,
-          y: -square.size / 2 * w - square.size * w
-        },
-        bl: {
-          x: -square.size / 2 * w - square.size * w,
-          y: square.size / 2 * w + square.size * w
-        },
-        br: {
-          x: square.size / 2 * w + square.size * w,
-          y: square.size / 2 * w + square.size * w
-        }
-      }
-
-      ctx.save()
-      ctx.translate(square.middle.x * w, square.middle.y * w)
-
-      const cullingPoly = [
-        [-square.size / 2 * w, -square.size / 2 * w],
-        [square.size / 2 * w, -square.size / 2 * w],
-        [square.size / 2 * w, square.size / 2 * w],
-        [-square.size / 2 * w, square.size / 2 * w]
-      ]
-
-      // Now we're going to draw 30 vertical lines, moving our way from the corners
-      const lines = 20
-      const lineStep = (outterCorners.tr.x - outterCorners.tl.x) / lines
-      ctx.save()
-      ctx.rotate(square.rotate * Math.PI / 180)
-      for (let j = 0; j < 30; j++) {
-        const line = {
-          p1: {
-            x: outterCorners.tl.x + (j * lineStep),
-            y: outterCorners.tl.y
-          },
-          p2: {
-            x: outterCorners.bl.x + (j * lineStep),
-            y: outterCorners.bl.y
-          }
-        }
-        const newLine = faultyLineIntersectsPoly(line, cullingPoly)
-        // console.log(screenLine)
-        if (newLine) {
-          const screenLine = {
-            p1: getTransformToScreen(newLine.p1.x, newLine.p1.y, square.rotate * Math.PI / 180, square.middle.x * w, square.middle.y * w),
-            p2: getTransformToScreen(newLine.p2.x, newLine.p2.y, square.rotate * Math.PI / 180, square.middle.x * w, square.middle.y * w)
-          }
-          features.lineHolder[layer].lines.push(screenLine)
-        }
-      }
-      ctx.restore()
-      ctx.restore()
-    }
-  }
-
-  // Now that we have it all go through the lines and draw them
-  for (let layer = 0; layer < features.layers; layer++) {
+    // If we are in the top half of the layers, we want to use the multiply blend mode
+    if (layer > features.layers / 2) ctx.globalCompositeOperation = 'multiply'
     ctx.strokeStyle = features.lineHolder[layer].colour
+    ctx.beginPath()
     for (let i = 0; i < features.lineHolder[layer].lines.length; i++) {
       const line = features.lineHolder[layer].lines[i]
-      ctx.beginPath()
-      if (line.p1.y < (w - (features.sideBorder * w) || line.p2.y < w - (features.sideBorder * w))) {
-        ctx.moveTo(line.p1.y - (features.topBottomBorder * w) + (features.sideBorder * w), line.p1.x)
-        ctx.lineTo(line.p2.y - (features.topBottomBorder * w) + (features.sideBorder * w), line.p2.x)
-      } else {
-        ctx.moveTo(line.p1.x, line.p1.y)
-        ctx.lineTo(line.p2.x, line.p2.y)
+      // Draw the line by moving to the first point, then looping through the rest
+      ctx.moveTo(line[0].x * w, line[0].y * h)
+      for (let j = 1; j < line.length; j++) {
+        ctx.lineTo(line[j].x * w, line[j].y * h)
       }
-      ctx.stroke()
     }
+    ctx.stroke()
+    // Reset the blend mode
+    ctx.globalCompositeOperation = 'source-over'
   }
-
-  // Call the draw function again
-  // aniFrame = window.requestAnimationFrame(drawCanvas)
+  const elapsedTime = new Date().getTime() - startTime
+  console.log(`Drawing ${features.lineHolder[0].lines.length} lines took ${elapsedTime}ms`)
 }
 
 const autoDownloadCanvas = async (showHash = false) => {
@@ -494,6 +551,57 @@ const autoDownloadCanvas = async (showHash = false) => {
   element.setAttribute('href', window.URL.createObjectURL(imageBlob, {
     type: 'image/png'
   }))
+  element.click()
+  document.body.removeChild(element)
+}
+
+const PAPER = { // eslint-disable-line no-unused-vars
+  A1: [59.4, 84.1],
+  A2: [42.0, 59.4],
+  A3: [29.7, 42.0],
+  A4: [21.0, 29.7],
+  A5: [14.8, 21.0],
+  A6: [10.5, 14.8]
+}
+
+const downloadSVG = async size => {
+  // Loop through the layers and download each one
+  for (let layer = 0; layer < features.layers; layer++) {
+    await wrapSVG(features.lineHolder[layer].lines, PAPER[size], `fffffrfffffl_${size}_${layer}_${fxhash}`)
+  }
+}
+
+const wrapSVG = async (lines, size, filename) => {
+  let output = `<?xml version="1.0" standalone="no" ?>
+  <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" 
+      "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+      <svg version="1.1" id="lines" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+      x="0" y="0"
+      viewBox="0 0 ${size[0]} ${size[1]}"
+      width="${size[0]}cm"
+      height="${size[1]}cm" 
+      xml:space="preserve">`
+
+  output += `
+      <g>
+      <path d="`
+  lines.forEach(points => {
+    output += `M ${points[0].x * size[0]} ${points[0].y * size[1]} `
+    for (let p = 1; p < points.length; p++) {
+      output += `L ${points[p].x * size[0]} ${points[p].y * size[1]} `
+    }
+  })
+  output += `"  fill="none" stroke="black" stroke-width="0.05"/>
+    </g>`
+  output += '</svg>'
+
+  const element = document.createElement('a')
+  element.setAttribute('download', `${filename}.svg`)
+  element.style.display = 'none'
+  document.body.appendChild(element)
+  element.setAttribute('href', window.URL.createObjectURL(new Blob([output], {
+    type: 'text/plain;charset=utf-8'
+  })))
   element.click()
   document.body.removeChild(element)
 }
@@ -516,6 +624,13 @@ document.addEventListener('keypress', async (e) => {
     drawPaper = !drawPaper
     await layoutCanvas()
   }
+
+  if (e.key === '1') downloadSVG('A1')
+  if (e.key === '2') downloadSVG('A2')
+  if (e.key === '3') downloadSVG('A3')
+  if (e.key === '4') downloadSVG('A4')
+  if (e.key === '5') downloadSVG('A5')
+  if (e.key === '6') downloadSVG('A6')
 })
 
 //  This preloads the images so we can get access to them
