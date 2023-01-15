@@ -1,4 +1,4 @@
-/* global preloadImagesTmr fxhash fxrand paper1Loaded */
+/* global preloadImagesTmr fxhash fxrand paper1Loaded noise palettes */
 
 //
 //  fxhash - fffffrfffffl
@@ -29,15 +29,23 @@ let resizeTmr = null
 window.$fxhashFeatures = {}
 
 // This decides if we're going to keep the square or subdivide it
-const subDivideSquare = (corners, depth) => {
+const subDivideSquare = (corners, depth, layer) => {
+  // Work out the middle of the square
+  const middle = {
+    x: corners.tl.x + ((corners.tr.x - corners.tl.x) / 2),
+    y: corners.tl.y + ((corners.bl.y - corners.tl.y) / 2)
+  }
+  // Grab a value from the perlin noise for the middle of the square
+  const perlinValue = (1 + noise.perlin2(features.perlinOffsets[layer].x + (middle.x * features.perlinOffsets[layer].scale), features.perlinOffsets[layer].y + (middle.y * features.perlinOffsets[layer].scale))) / 2
+
   // Work out the chance of it being subdivided
-  let subChance = 0.8
+  let subChance = 0.9
   for (let i = 0; i < depth; i++) subChance *= 0.666
   // Don't let his carry on forever
-  if (subChance < 0.15) subChance = 0
+  if (subChance < 0.2) subChance = -1
 
   // Now work out if we're going to subdivide it
-  if (fxrand() < subChance) {
+  if (perlinValue < subChance) {
     // We are going to subdivide it, first work out the length of half the square
     const halfLength = (corners.tr.x - corners.tl.x) / 2
     // Now do two loops to work out the four corners of the new squares
@@ -61,7 +69,7 @@ const subDivideSquare = (corners, depth) => {
             y: corners.tl.y + ((y + 1) * halfLength)
           }
         }
-        subDivideSquare(newCorners, depth + 1)
+        subDivideSquare(newCorners, depth + 1, layer)
       }
     }
   } else {
@@ -72,7 +80,8 @@ const subDivideSquare = (corners, depth) => {
       x: corners.tl.x + ((corners.tr.x - corners.tl.x) / 2),
       y: corners.tl.y + ((corners.bl.y - corners.tl.y) / 2)
     }
-    features.squares.push(newSquare)
+    newSquare.rotate = 180 * noise.perlin2(features.perlinRotationOffsets[layer].x + (newSquare.middle.x * features.perlinRotationOffsets[layer].scale), features.perlinRotationOffsets[layer].y + (newSquare.middle.y * features.perlinRotationOffsets[layer].scale))
+    features.squares[layer].push(newSquare)
   }
 }
 
@@ -89,11 +98,61 @@ const makeFeatures = () => {
     }
   }
 
+  features.layers = 6
+
+  // got through the palettes, deleting any that are too small
+  for (let i = 0; i < palettes.length; i++) {
+    if (palettes[i].colors.length < features.layers) {
+      palettes.splice(i, 1)
+      i--
+    }
+  }
+
+  // Go grab a palette
+  features.palette = []
+  while (features.palette.length < features.layers) {
+    features.paletteIndex = Math.floor(fxrand() * palettes.length)
+    features.palette = palettes[features.paletteIndex].colors.map((c) => c.value)
+  }
+
+  // We are going to have some perlin noise so we'll have some offsets and scale
+  features.perlinOffsets = []
+  features.perlinRotationOffsets = []
+
+  for (let i = 0; i < features.layers; i++) {
+    // If we are on the first layer, make it random, otherwise copy the values over
+    if (i === 0) {
+      features.perlinOffsets.push({
+        x: fxrand() * 1000 + 4000,
+        y: fxrand() * 1000 + 4000,
+        scale: 8
+      })
+
+      features.perlinRotationOffsets.push({
+        x: fxrand() * 1000 + 4000,
+        y: fxrand() * 1000 + 4000,
+        scale: 2
+      })
+    } else {
+      // Copy them over
+      features.perlinOffsets.push({
+        x: features.perlinOffsets[0].x + (i * 0.25),
+        y: features.perlinOffsets[0].y + (i * 0.125),
+        scale: features.perlinOffsets[0].scale + (i * 0.0)
+      })
+      features.perlinRotationOffsets.push({
+        x: features.perlinRotationOffsets[0].x + (i * 0.01),
+        y: features.perlinRotationOffsets[0].y + (i * 0.005),
+        scale: features.perlinRotationOffsets[0].scale + (i * 0.0)
+      })
+    }
+  }
+
   // We are going to be using a 1 by 1 * ratio co-ordinate system, so we need to work within that
   // I want to work out a grid that nicely fills the page, making sure to have a border
   features.sideBorder = 0.05
   // Pick a number of squares across the page, somewhere between 4 and 7
-  features.squaresAcross = Math.floor(fxrand() * 6) + 6
+  features.squaresAcross = Math.floor(fxrand() * 2) + 2
   // Work out the size of the squares
   features.squareSize = (1 - (features.sideBorder * 2)) / features.squaresAcross
   // Work out the number of squares down the page
@@ -103,28 +162,31 @@ const makeFeatures = () => {
 
   // Now have an array of all the squares
   features.squares = []
-  for (let y = 0; y < features.squaresDown; y++) {
-    for (let x = 0; x < features.squaresAcross; x++) {
-      // Work out the four corners of the square
-      const corners = {
-        tl: {
-          x: x * features.squareSize + features.sideBorder,
-          y: y * features.squareSize + features.topBottomBorder
-        },
-        tr: {
-          x: (x * features.squareSize + features.sideBorder) + features.squareSize,
-          y: y * features.squareSize + features.topBottomBorder
-        },
-        bl: {
-          x: x * features.squareSize + features.sideBorder,
-          y: (y * features.squareSize + features.topBottomBorder) + features.squareSize
-        },
-        br: {
-          x: (x * features.squareSize + features.sideBorder) + features.squareSize,
-          y: (y * features.squareSize + features.topBottomBorder) + features.squareSize
+  for (let i = 0; i < features.layers; i++) {
+    features.squares.push([])
+    for (let y = 0; y < features.squaresDown; y++) {
+      for (let x = 0; x < features.squaresAcross; x++) {
+        // Work out the four corners of the square
+        const corners = {
+          tl: {
+            x: x * features.squareSize + features.sideBorder,
+            y: y * features.squareSize + features.topBottomBorder
+          },
+          tr: {
+            x: (x * features.squareSize + features.sideBorder) + features.squareSize,
+            y: y * features.squareSize + features.topBottomBorder
+          },
+          bl: {
+            x: x * features.squareSize + features.sideBorder,
+            y: (y * features.squareSize + features.topBottomBorder) + features.squareSize
+          },
+          br: {
+            x: (x * features.squareSize + features.sideBorder) + features.squareSize,
+            y: (y * features.squareSize + features.topBottomBorder) + features.squareSize
+          }
         }
+        subDivideSquare(corners, 0, i)
       }
-      subDivideSquare(corners, 0)
     }
   }
 }
@@ -228,23 +290,62 @@ const drawCanvas = async () => {
 
   // Set the line width and colour
   ctx.lineWidth = w / 400
-  ctx.strokeStyle = '#000000'
-
+  // Set the blend mode to multiply
+  ctx.globalCompositeOperation = 'multiply'
   // Draw the squares
-  for (let i = 0; i < features.squares.length; i++) {
-    const square = features.squares[i]
-    // Calculate the square size
-    square.size = square.corners.tr.x - square.corners.tl.x
-    ctx.save()
-    ctx.translate(square.middle.x * w, square.middle.y * w)
-    ctx.beginPath()
-    ctx.moveTo(-square.size / 2 * w, -square.size / 2 * w)
-    ctx.lineTo(square.size / 2 * w, -square.size / 2 * w)
-    ctx.lineTo(square.size / 2 * w, square.size / 2 * w)
-    ctx.lineTo(-square.size / 2 * w, square.size / 2 * w)
-    ctx.lineTo(-square.size / 2 * w, -square.size / 2 * w)
-    ctx.stroke()
-    ctx.restore()
+
+  for (let layer = 0; layer < features.layers; layer++) {
+    ctx.strokeStyle = features.palette[layer]
+
+    for (let i = 0; i < features.squares[layer].length; i++) {
+      const square = features.squares[layer][i]
+      // Calculate the square size
+      square.size = square.corners.tr.x - square.corners.tl.x
+      // Now I want to draw lines from square.size off from the corners
+      const outterCorners = {
+        tl: {
+          x: -square.size / 2 * w - square.size * w,
+          y: -square.size / 2 * w - square.size * w
+        },
+        tr: {
+          x: square.size / 2 * w + square.size * w,
+          y: -square.size / 2 * w - square.size * w
+        },
+        bl: {
+          x: -square.size / 2 * w - square.size * w,
+          y: square.size / 2 * w + square.size * w
+        },
+        br: {
+          x: square.size / 2 * w + square.size * w,
+          y: square.size / 2 * w + square.size * w
+        }
+      }
+
+      ctx.save()
+      ctx.translate(square.middle.x * w, square.middle.y * w)
+
+      ctx.beginPath()
+      ctx.moveTo(-square.size / 2 * w, -square.size / 2 * w)
+      ctx.lineTo(square.size / 2 * w, -square.size / 2 * w)
+      ctx.lineTo(square.size / 2 * w, square.size / 2 * w)
+      ctx.lineTo(-square.size / 2 * w, square.size / 2 * w)
+      ctx.lineTo(-square.size / 2 * w, -square.size / 2 * w)
+      ctx.clip()
+
+      // Now we're going to draw 30 vertical lines, moving our way from the corners
+      const lines = 20
+      const lineStep = (outterCorners.tr.x - outterCorners.tl.x) / lines
+      ctx.save()
+      ctx.rotate(square.rotate * Math.PI / 180)
+      for (let j = 0; j < 30; j++) {
+        ctx.beginPath()
+        ctx.moveTo(outterCorners.tl.x + (j * lineStep), outterCorners.tl.y)
+        ctx.lineTo(outterCorners.tl.x + (j * lineStep), outterCorners.bl.y)
+        ctx.stroke()
+      }
+      ctx.restore()
+      ctx.restore()
+    }
   }
   // Call the draw function again
   // aniFrame = window.requestAnimationFrame(drawCanvas)
