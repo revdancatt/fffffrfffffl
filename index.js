@@ -30,14 +30,50 @@ window.$fxhashFeatures = {}
 
 // This decides if we're going to keep the square or subdivide it
 const subDivideSquare = (corners, depth) => {
-  const newSquare = {
-    corners
+  // Work out the chance of it being subdivided
+  let subChance = 0.8
+  for (let i = 0; i < depth; i++) subChance *= 0.666
+  // Don't let his carry on forever
+  if (subChance < 0.15) subChance = 0
+
+  // Now work out if we're going to subdivide it
+  if (fxrand() < subChance) {
+    // We are going to subdivide it, first work out the length of half the square
+    const halfLength = (corners.tr.x - corners.tl.x) / 2
+    // Now do two loops to work out the four corners of the new squares
+    for (let y = 0; y < 2; y++) {
+      for (let x = 0; x < 2; x++) {
+        const newCorners = {
+          tl: {
+            x: corners.tl.x + (x * halfLength),
+            y: corners.tl.y + (y * halfLength)
+          },
+          tr: {
+            x: corners.tl.x + ((x + 1) * halfLength),
+            y: corners.tl.y + (y * halfLength)
+          },
+          bl: {
+            x: corners.tl.x + (x * halfLength),
+            y: corners.tl.y + ((y + 1) * halfLength)
+          },
+          br: {
+            x: corners.tl.x + ((x + 1) * halfLength),
+            y: corners.tl.y + ((y + 1) * halfLength)
+          }
+        }
+        subDivideSquare(newCorners, depth + 1)
+      }
+    }
+  } else {
+    const newSquare = {
+      corners
+    }
+    newSquare.middle = {
+      x: corners.tl.x + ((corners.tr.x - corners.tl.x) / 2),
+      y: corners.tl.y + ((corners.bl.y - corners.tl.y) / 2)
+    }
+    features.squares.push(newSquare)
   }
-  newSquare.middle = {
-    x: corners.tl.x + ((corners.tr.x - corners.tl.x) / 2),
-    y: corners.tl.y + ((corners.bl.y - corners.tl.y) / 2)
-  }
-  features.squares.push(newSquare)
 }
 
 //  Work out what all our features are
@@ -57,7 +93,7 @@ const makeFeatures = () => {
   // I want to work out a grid that nicely fills the page, making sure to have a border
   features.sideBorder = 0.05
   // Pick a number of squares across the page, somewhere between 4 and 7
-  features.squaresAcross = Math.floor(fxrand() * 3) + 4
+  features.squaresAcross = Math.floor(fxrand() * 6) + 6
   // Work out the size of the squares
   features.squareSize = (1 - (features.sideBorder * 2)) / features.squaresAcross
   // Work out the number of squares down the page
@@ -191,7 +227,7 @@ const drawCanvas = async () => {
   }
 
   // Set the line width and colour
-  ctx.lineWidth = w / 300
+  ctx.lineWidth = w / 400
   ctx.strokeStyle = '#000000'
 
   // Draw the squares
