@@ -28,6 +28,18 @@ let resizeTmr = null
 
 window.$fxhashFeatures = {}
 
+// This decides if we're going to keep the square or subdivide it
+const subDivideSquare = (corners, depth) => {
+  const newSquare = {
+    corners
+  }
+  newSquare.middle = {
+    x: corners.tl.x + ((corners.tr.x - corners.tl.x) / 2),
+    y: corners.tl.y + ((corners.bl.y - corners.tl.y) / 2)
+  }
+  features.squares.push(newSquare)
+}
+
 //  Work out what all our features are
 const makeFeatures = () => {
   features.paperOffset = {
@@ -38,6 +50,45 @@ const makeFeatures = () => {
     paper2: {
       x: fxrand(),
       y: fxrand()
+    }
+  }
+
+  // We are going to be using a 1 by 1 * ratio co-ordinate system, so we need to work within that
+  // I want to work out a grid that nicely fills the page, making sure to have a border
+  features.sideBorder = 0.05
+  // Pick a number of squares across the page, somewhere between 4 and 7
+  features.squaresAcross = Math.floor(fxrand() * 3) + 4
+  // Work out the size of the squares
+  features.squareSize = (1 - (features.sideBorder * 2)) / features.squaresAcross
+  // Work out the number of squares down the page
+  features.squaresDown = Math.floor(((1 * ratio) - (features.sideBorder * 2)) / features.squareSize)
+  // Work out the topBottomBorder
+  features.topBottomBorder = ((1 * ratio) - (features.squaresDown * features.squareSize)) / 2
+
+  // Now have an array of all the squares
+  features.squares = []
+  for (let y = 0; y < features.squaresDown; y++) {
+    for (let x = 0; x < features.squaresAcross; x++) {
+      // Work out the four corners of the square
+      const corners = {
+        tl: {
+          x: x * features.squareSize + features.sideBorder,
+          y: y * features.squareSize + features.topBottomBorder
+        },
+        tr: {
+          x: (x * features.squareSize + features.sideBorder) + features.squareSize,
+          y: y * features.squareSize + features.topBottomBorder
+        },
+        bl: {
+          x: x * features.squareSize + features.sideBorder,
+          y: (y * features.squareSize + features.topBottomBorder) + features.squareSize
+        },
+        br: {
+          x: (x * features.squareSize + features.sideBorder) + features.squareSize,
+          y: (y * features.squareSize + features.topBottomBorder) + features.squareSize
+        }
+      }
+      subDivideSquare(corners, 0)
     }
   }
 }
@@ -139,6 +190,26 @@ const drawCanvas = async () => {
     ctx.fillRect(0, 0, w, h)
   }
 
+  // Set the line width and colour
+  ctx.lineWidth = w / 300
+  ctx.strokeStyle = '#000000'
+
+  // Draw the squares
+  for (let i = 0; i < features.squares.length; i++) {
+    const square = features.squares[i]
+    // Calculate the square size
+    square.size = square.corners.tr.x - square.corners.tl.x
+    ctx.save()
+    ctx.translate(square.middle.x * w, square.middle.y * w)
+    ctx.beginPath()
+    ctx.moveTo(-square.size / 2 * w, -square.size / 2 * w)
+    ctx.lineTo(square.size / 2 * w, -square.size / 2 * w)
+    ctx.lineTo(square.size / 2 * w, square.size / 2 * w)
+    ctx.lineTo(-square.size / 2 * w, square.size / 2 * w)
+    ctx.lineTo(-square.size / 2 * w, -square.size / 2 * w)
+    ctx.stroke()
+    ctx.restore()
+  }
   // Call the draw function again
   // aniFrame = window.requestAnimationFrame(drawCanvas)
 }
