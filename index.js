@@ -126,7 +126,7 @@ const makeFeatures = () => {
     //   Push the lines into the line holder
     features.lineHolder.push({
       lines: [],
-      color: features.palette[i]
+      colour: features.palette[i]
     })
 
     // If we are on the first layer, make it random, otherwise copy the values over
@@ -354,6 +354,19 @@ const faultyLineIntersectsPoly = (line, poly) => {
   return null
 }
 
+const getTransformToScreen = (x, y, rotation, posX, posY) => {
+  const xAx = Math.cos(rotation) // x axis x
+  const xAy = Math.sin(rotation) // x axis y
+  // the equivalent to
+  // ctx setTransform(xAx, xAy ,-xAy, xAx, posX, posY);
+  // second two values (y Axis) is at 90 deg of x Axis if it is
+  // not at 90 (skewed) then you need to calculate the skewed axis (y axis) direction
+  return {
+    x: x * xAx - y * xAy + posX,
+    y: x * xAy + y * xAx + posY
+  }
+}
+
 const drawCanvas = async () => {
   //  Let the preloader know that we've hit this function at least once
   drawn = true
@@ -383,6 +396,7 @@ const drawCanvas = async () => {
 
   for (let layer = 0; layer < features.layers; layer++) {
     ctx.strokeStyle = features.palette[layer]
+    features.lineHolder[layer].colour = features.palette[layer]
 
     for (let i = 0; i < features.squares[layer].length; i++) {
       const square = features.squares[layer][i]
@@ -435,33 +449,37 @@ const drawCanvas = async () => {
           }
         }
         const newLine = faultyLineIntersectsPoly(line, cullingPoly)
-
+        // console.log(screenLine)
         if (newLine) {
-          ctx.beginPath()
-          if (newLine.p2.y + square.middle.y * w < w) {
-            // Rotate the line 90 degrees
-            const x = newLine.p1.x
-            const y = newLine.p1.y
-            newLine.p1.x = y
-            newLine.p1.y = -x
-            const x2 = newLine.p2.x
-            const y2 = newLine.p2.y
-            newLine.p2.x = y2
-            newLine.p2.y = -x2
-
-            ctx.moveTo(newLine.p1.x, newLine.p1.y)
-            ctx.lineTo(newLine.p2.x, newLine.p2.y)
-          } else {
-            ctx.moveTo(newLine.p1.x, newLine.p1.y)
-            ctx.lineTo(newLine.p2.x, newLine.p2.y)
+          const screenLine = {
+            p1: getTransformToScreen(newLine.p1.x, newLine.p1.y, square.rotate * Math.PI / 180, square.middle.x * w, square.middle.y * w),
+            p2: getTransformToScreen(newLine.p2.x, newLine.p2.y, square.rotate * Math.PI / 180, square.middle.x * w, square.middle.y * w)
           }
-          ctx.stroke()
+          features.lineHolder[layer].lines.push(screenLine)
         }
       }
       ctx.restore()
       ctx.restore()
     }
   }
+
+  // Now that we have it all go through the lines and draw them
+  for (let layer = 0; layer < features.layers; layer++) {
+    ctx.strokeStyle = features.lineHolder[layer].colour
+    for (let i = 0; i < features.lineHolder[layer].lines.length; i++) {
+      const line = features.lineHolder[layer].lines[i]
+      ctx.beginPath()
+      if (line.p1.y < (w - (features.sideBorder * w) || line.p2.y < w - (features.sideBorder * w))) {
+        ctx.moveTo(line.p1.y - (features.topBottomBorder * w) + (features.sideBorder * w), line.p1.x)
+        ctx.lineTo(line.p2.y - (features.topBottomBorder * w) + (features.sideBorder * w), line.p2.x)
+      } else {
+        ctx.moveTo(line.p1.x, line.p1.y)
+        ctx.lineTo(line.p2.x, line.p2.y)
+      }
+      ctx.stroke()
+    }
+  }
+
   // Call the draw function again
   // aniFrame = window.requestAnimationFrame(drawCanvas)
 }
