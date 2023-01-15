@@ -100,6 +100,9 @@ const makeFeatures = () => {
 
   features.layers = 6
 
+  // We need something to hold all the lines
+  features.lineHolder = []
+
   // got through the palettes, deleting any that are too small
   for (let i = 0; i < palettes.length; i++) {
     if (palettes[i].colors.length < features.layers) {
@@ -120,6 +123,12 @@ const makeFeatures = () => {
   features.perlinRotationOffsets = []
 
   for (let i = 0; i < features.layers; i++) {
+    //   Push the lines into the line holder
+    features.lineHolder.push({
+      lines: [],
+      color: features.palette[i]
+    })
+
     // If we are on the first layer, make it random, otherwise copy the values over
     if (i === 0) {
       features.perlinOffsets.push({
@@ -152,7 +161,8 @@ const makeFeatures = () => {
   // I want to work out a grid that nicely fills the page, making sure to have a border
   features.sideBorder = 0.05
   // Pick a number of squares across the page, somewhere between 4 and 7
-  features.squaresAcross = Math.floor(fxrand() * 2) + 2
+  const possibleSquaresAcross = [3, 5, 6, 7, 10]
+  features.squaresAcross = possibleSquaresAcross[Math.floor(fxrand() * possibleSquaresAcross.length)]
   // Work out the size of the squares
   features.squareSize = (1 - (features.sideBorder * 2)) / features.squaresAcross
   // Work out the number of squares down the page
@@ -267,6 +277,83 @@ const layoutCanvas = async () => {
   drawCanvas()
 }
 
+// A function that finds the intersection point of two lines
+const faultyLineIntersectsEdge = (line1, line2) => {
+  // Get the points of the lines
+  const p1 = line1.p1
+  const p2 = line1.p2
+  const p3 = line2.p1
+  const p4 = line2.p2
+  // Get the x and y values of the lines
+  const x1 = p1.x
+  const x2 = p2.x
+  const x3 = p3.x
+  const x4 = p4.x
+  const y1 = p1.y
+  const y2 = p2.y
+  const y3 = p3.y
+  const y4 = p4.y
+  // Calculate the denominator
+  const denominator = ((x1 - x2) * (y3 - y4)) - ((y1 - y2) * (x3 - x4))
+  // If the denominator is 0, the lines are parallel
+  if (denominator === 0) {
+    return null
+  }
+  // Calculate the intersection point
+  const x = (((x1 * y2) - (y1 * x2)) * (x3 - x4) - ((x1 - x2) * (x3 * y4 - y3 * x4))) / denominator
+  const y = (((x1 * y2) - (y1 * x2)) * (y3 - y4) - ((y1 - y2) * (x3 * y4 - y3 * x4))) / denominator
+  // Check if the intersection point is on the line segments
+  if (x < Math.min(x1, x2) || x > Math.max(x1, x2) || x < Math.min(x3, x4) || x > Math.max(x3, x4)) {
+    return null
+  }
+  if (y < Math.min(y1, y2) || y > Math.max(y1, y2) || y < Math.min(y3, y4) || y > Math.max(y3, y4)) {
+    return null
+  }
+  // Return the point of intersection
+  return {
+    x,
+    y
+  }
+}
+
+// We need a function that calculates if a line intersects a polygon
+const faultyLineIntersectsPoly = (line, poly) => {
+  let intersection1 = null
+  let intersection2 = null
+  // Loop through the points of the poly grabbing the edges
+  for (let i = 0; i < poly.length; i++) {
+    const p1 = poly[i]
+    const p2 = (i < poly.length - 1) ? poly[i + 1] : poly[0]
+    const edge = {
+      p1: {
+        x: p1[0],
+        y: p1[1]
+      },
+      p2: {
+        x: p2[0],
+        y: p2[1]
+      }
+    }
+    // Get the intersection point of the line and the edge
+    const intersection = faultyLineIntersectsEdge(line, edge)
+    // If there is an intersection, set it
+    if (intersection) {
+      if (!intersection1) {
+        intersection1 = intersection
+      } else {
+        intersection2 = intersection
+      }
+    }
+  }
+  if (intersection1 && intersection2) {
+    return {
+      p1: intersection1,
+      p2: intersection2
+    }
+  }
+  return null
+}
+
 const drawCanvas = async () => {
   //  Let the preloader know that we've hit this function at least once
   drawn = true
@@ -291,7 +378,7 @@ const drawCanvas = async () => {
   // Set the line width and colour
   ctx.lineWidth = w / 400
   // Set the blend mode to multiply
-  ctx.globalCompositeOperation = 'multiply'
+  // ctx.globalCompositeOperation = 'multiply'
   // Draw the squares
 
   for (let layer = 0; layer < features.layers; layer++) {
@@ -324,13 +411,12 @@ const drawCanvas = async () => {
       ctx.save()
       ctx.translate(square.middle.x * w, square.middle.y * w)
 
-      ctx.beginPath()
-      ctx.moveTo(-square.size / 2 * w, -square.size / 2 * w)
-      ctx.lineTo(square.size / 2 * w, -square.size / 2 * w)
-      ctx.lineTo(square.size / 2 * w, square.size / 2 * w)
-      ctx.lineTo(-square.size / 2 * w, square.size / 2 * w)
-      ctx.lineTo(-square.size / 2 * w, -square.size / 2 * w)
-      ctx.clip()
+      const cullingPoly = [
+        [-square.size / 2 * w, -square.size / 2 * w],
+        [square.size / 2 * w, -square.size / 2 * w],
+        [square.size / 2 * w, square.size / 2 * w],
+        [-square.size / 2 * w, square.size / 2 * w]
+      ]
 
       // Now we're going to draw 30 vertical lines, moving our way from the corners
       const lines = 20
@@ -338,10 +424,39 @@ const drawCanvas = async () => {
       ctx.save()
       ctx.rotate(square.rotate * Math.PI / 180)
       for (let j = 0; j < 30; j++) {
-        ctx.beginPath()
-        ctx.moveTo(outterCorners.tl.x + (j * lineStep), outterCorners.tl.y)
-        ctx.lineTo(outterCorners.tl.x + (j * lineStep), outterCorners.bl.y)
-        ctx.stroke()
+        const line = {
+          p1: {
+            x: outterCorners.tl.x + (j * lineStep),
+            y: outterCorners.tl.y
+          },
+          p2: {
+            x: outterCorners.bl.x + (j * lineStep),
+            y: outterCorners.bl.y
+          }
+        }
+        const newLine = faultyLineIntersectsPoly(line, cullingPoly)
+
+        if (newLine) {
+          ctx.beginPath()
+          if (newLine.p2.y + square.middle.y * w < w) {
+            // Rotate the line 90 degrees
+            const x = newLine.p1.x
+            const y = newLine.p1.y
+            newLine.p1.x = y
+            newLine.p1.y = -x
+            const x2 = newLine.p2.x
+            const y2 = newLine.p2.y
+            newLine.p2.x = y2
+            newLine.p2.y = -x2
+
+            ctx.moveTo(newLine.p1.x, newLine.p1.y)
+            ctx.lineTo(newLine.p2.x, newLine.p2.y)
+          } else {
+            ctx.moveTo(newLine.p1.x, newLine.p1.y)
+            ctx.lineTo(newLine.p2.x, newLine.p2.y)
+          }
+          ctx.stroke()
+        }
       }
       ctx.restore()
       ctx.restore()
