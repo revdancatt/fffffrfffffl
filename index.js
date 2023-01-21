@@ -514,6 +514,113 @@ const drawCanvas = async () => {
     // Now we store all the lines with their points in the line holder
     // so we can draw them later
     features.lineHolder = positionedLineHolder
+
+    // Now we're going to turn all the lines into a single object, so we can do some manipulation
+    // before we turn them back into their original format
+    const allLines = []
+    for (let layer = 0; layer < features.lineHolder.length; layer++) {
+      for (let i = 0; i < features.lineHolder[layer].lines.length; i++) {
+        const line = features.lineHolder[layer].lines[i]
+        line.layer = layer
+        allLines.push(line)
+      }
+    }
+
+    // Now we're going to do some manipulation on the lines
+    // We are going to make an object that holds a "bin" for each main grid square
+    // Then we are going to put all the lines that have a center point in that square into that bin
+    const lineBins = {}
+    // Loop through the squares down
+    for (let y = 0; y < features.squaresDown; y++) {
+      // Loop through the squares across
+      for (let x = 0; x < features.squaresAcross; x++) {
+        // Create the bin
+        lineBins[`${x},${y}`] = {
+          lines: []
+        }
+        // Grab the corners of the square
+        const square = {
+          top: (y * features.squareSize + features.topBottomBorder) * w,
+          bottom: ((y + 1) * features.squareSize + features.topBottomBorder) * w,
+          left: (x * features.squareSize + features.sideBorder) * w,
+          right: ((x + 1) * features.squareSize + features.sideBorder) * w
+        }
+        square.center = {
+          x: (square.left + square.right) / 2,
+          y: (square.top + square.bottom) / 2
+        }
+        lineBins[`${x},${y}`].square = square
+        // Draw the square
+        ctx.beginPath()
+        ctx.rect(square.left, square.top, square.right - square.left, square.bottom - square.top)
+        ctx.strokeStyle = 'rgba(0,0,0,0.1)'
+        ctx.lineWidth = 10
+        ctx.stroke()
+      }
+    }
+
+    // Now loop through all the lines and put them in the correct bin
+    for (let i = 0; i < allLines.length; i++) {
+      const line = allLines[i]
+      // Convert the line points to the canvas size
+      line[0].x = (line[0].x + features.sideBorder) * w
+      line[0].y = (line[0].y + features.topBottomBorder) * h
+      line[1].x = (line[1].x + features.sideBorder) * w
+      line[1].y = (line[1].y + features.topBottomBorder) * h
+
+      // Get the center point of the line
+      const centerPoint = {
+        x: (line[0].x + line[1].x) / 2,
+        y: (line[0].y + line[1].y) / 2
+      }
+      // Loop through lineBins and find the one that the center point is in
+      for (const bin in lineBins) {
+        const square = lineBins[bin].square
+        if (centerPoint.x > square.left && centerPoint.x < square.right && centerPoint.y > square.top && centerPoint.y < square.bottom) {
+          lineBins[bin].lines.push(line)
+        }
+      }
+    }
+    // Now we need to go through all the lineBins putting the lines back into the line holder
+    // in the correct format
+    features.lineHolder = []
+    for (let layer = 0; layer < features.layers; layer++) {
+      // Loop through all the bins
+      features.lineHolder.push({
+        lines: [],
+        colour: features.palette[layer]
+      })
+      for (const bin in lineBins) {
+        // Loop through all the lines in the bin
+        for (let i = 0; i < lineBins[bin].lines.length; i++) {
+          const line = lineBins[bin].lines[i]
+          if (line.layer === layer) {
+            line.binIndex = bin
+            line.bin = lineBins[bin]
+            features.lineHolder[layer].lines.push(line)
+          }
+        }
+      }
+    }
+
+    // Now go through all the lines and put them back into the line holder
+    // in the correct format
+    /*
+    features.lineHolder = []
+    for (let layer = 0; layer < features.layers; layer++) {
+      // loop through all the lines
+      features.lineHolder.push({
+        lines: [],
+        colour: features.palette[layer]
+      })
+      for (let i = 0; i < allLines.length; i++) {
+        const line = allLines[i]
+        if (line.layer === layer) {
+          features.lineHolder[layer].lines.push(line)
+        }
+      }
+    }
+    */
     features.linesSet = true
   }
 
@@ -529,11 +636,13 @@ const drawCanvas = async () => {
     ctx.beginPath()
     for (let i = 0; i < features.lineHolder[layer].lines.length; i++) {
       const line = features.lineHolder[layer].lines[i]
+      // if (line.binIndex !== '2,2') {
       // Draw the line by moving to the first point, then looping through the rest
-      ctx.moveTo(line[0].x * w, line[0].y * h)
+      ctx.moveTo(line[0].x, line[0].y)
       for (let j = 1; j < line.length; j++) {
-        ctx.lineTo(line[j].x * w, line[j].y * h)
+        ctx.lineTo(line[j].x, line[j].y)
       }
+      // }
     }
     ctx.stroke()
     // Reset the blend mode
