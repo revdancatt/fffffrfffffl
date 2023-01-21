@@ -28,6 +28,44 @@ let resizeTmr = null
 
 window.$fxhashFeatures = {}
 
+// A function to convert a hex colour to a hsl colour
+function hexToHsl (hex) {
+  // Convert hex to RGB first
+  let r = 0; let g = 0; let b = 0
+  if (hex.length === 4) {
+    r = '0x' + hex[1] + hex[1]
+    g = '0x' + hex[2] + hex[2]
+    b = '0x' + hex[3] + hex[3]
+  } else if (hex.length === 7) {
+    r = '0x' + hex[1] + hex[2]
+    g = '0x' + hex[3] + hex[4]
+    b = '0x' + hex[5] + hex[6]
+  }
+  // Then to HSL
+  r /= 255
+  g /= 255
+  b /= 255
+  const cmin = Math.min(r, g, b)
+  const cmax = Math.max(r, g, b)
+  const delta = cmax - cmin
+  let h = 0
+  let s = 0
+  let l = 0
+
+  if (delta === 0) { h = 0 } else if (cmax === r) { h = ((g - b) / delta) % 6 } else if (cmax === g) { h = (b - r) / delta + 2 } else { h = (r - g) / delta + 4 }
+
+  h = Math.round(h * 60)
+
+  if (h < 0) { h += 360 }
+
+  l = (cmax + cmin) / 2
+  s = delta === 0 ? 0 : delta / (1 - Math.abs(2 * l - 1))
+  s = +(s * 100).toFixed(1)
+  l = +(l * 100).toFixed(1)
+
+  return { h, s, l }
+}
+
 // This decides if we're going to keep the square or subdivide it
 const subDivideSquare = (corners, depth, layer) => {
   // Work out the middle of the square
@@ -162,7 +200,7 @@ const makeFeatures = () => {
 
   // We are going to be using a 1 by 1 * ratio co-ordinate system, so we need to work within that
   // I want to work out a grid that nicely fills the page, making sure to have a border
-  features.sideBorder = 0.05
+  features.sideBorder = 0.075
   // Pick a number of squares across the page, somewhere between 4 and 7
   const possibleSquaresAcross = [3, 5, 6, 7, 10]
   features.squaresAcross = possibleSquaresAcross[Math.floor(fxrand() * possibleSquaresAcross.length)]
@@ -202,6 +240,8 @@ const makeFeatures = () => {
       }
     }
   }
+
+  features.emptyBoxes = []
 }
 
 //  Call the above make features, so we'll have the window.$fxhashFeatures available
@@ -551,11 +591,13 @@ const drawCanvas = async () => {
         }
         lineBins[`${x},${y}`].square = square
         // Draw the square
+        /*
         ctx.beginPath()
         ctx.rect(square.left, square.top, square.right - square.left, square.bottom - square.top)
         ctx.strokeStyle = 'rgba(0,0,0,0.1)'
         ctx.lineWidth = 10
         ctx.stroke()
+        */
       }
     }
 
@@ -581,6 +623,201 @@ const drawCanvas = async () => {
         }
       }
     }
+
+    // Make a list of all the bins
+    const binList = []
+    for (const bin in lineBins) binList.push(bin)
+
+    // Randomly pick 30% of the bins
+    const binsToRotate = []
+    for (let i = 0; i < binList.length * 0.3; i++) {
+      const bin = binList[Math.floor(fxrand() * binList.length)]
+      binsToRotate.push(bin)
+      binList.splice(binList.indexOf(bin), 1)
+    }
+    // add the bins to rotate back to the bin list
+    for (let i = 0; i < binsToRotate.length; i++) binList.push(binsToRotate[i])
+
+    // Now we need to rotate the lines in the bins
+    for (let i = 0; i < binsToRotate.length; i++) {
+      const binKey = binsToRotate[i]
+      const bin = lineBins[binKey]
+      const angle = Math.floor(fxrand() * 4) * 90
+      // we want to subtract the bin.center from each point in the lines
+      // then rotate the points by the angle
+      // then add the bin.center back to each point
+      for (let j = 0; j < bin.lines.length; j++) {
+        const line = bin.lines[j]
+        // Subtract the bin center from each point
+        line[0].x -= bin.square.center.x
+        line[0].y -= bin.square.center.y
+        line[1].x -= bin.square.center.x
+        line[1].y -= bin.square.center.y
+        // Rotate the points, the long but faster way
+        const x1 = line[0].x
+        const y1 = line[0].y
+        const x2 = line[1].x
+        const y2 = line[1].y
+        if (angle === 90) {
+          line[0].x = y1
+          line[0].y = -x1
+          line[1].x = y2
+          line[1].y = -x2
+        } else if (angle === 180) {
+          line[0].x = -x1
+          line[0].y = -y1
+          line[1].x = -x2
+          line[1].y = -y2
+        } else if (angle === 270) {
+          line[0].x = -y1
+          line[0].y = x1
+          line[1].x = -y2
+          line[1].y = x2
+        }
+        // Add the bin center back to each point
+        line[0].x += bin.square.center.x
+        line[0].y += bin.square.center.y
+        line[1].x += bin.square.center.x
+        line[1].y += bin.square.center.y
+      }
+    }
+
+    // Now we want to know how many non-empty bins there are
+    const fullBinsList = []
+    for (const bin in lineBins) {
+      if (lineBins[bin].lines.length > 0) fullBinsList.push(bin)
+    }
+    // Now we want to randomly pick 10% of the full bins
+    const binsToSwap = []
+    for (let i = 0; i < fullBinsList.length * 0.1; i++) {
+      const bin = fullBinsList[Math.floor(fxrand() * fullBinsList.length)]
+      binsToSwap.push(bin)
+      fullBinsList.splice(fullBinsList.indexOf(bin), 1)
+    }
+    // Now we want to build up a list of where we are going to swap from and to
+    const swapList = []
+    for (let i = 0; i < binsToSwap.length; i++) {
+      const bin = binsToSwap[i]
+      // Pick a random bin from binList to swap to, but not the same as the bin we are swapping from
+      let swapTo = bin
+      while (swapTo === bin) {
+        swapTo = binList[Math.floor(fxrand() * binList.length)]
+      }
+      swapList.push({
+        from: bin,
+        to: swapTo
+      })
+    }
+    // Now we want to swap the lines from the bins
+    for (let i = 0; i < swapList.length; i++) {
+      const swap = swapList[i]
+      const fromBin = lineBins[swap.from]
+      const toBin = lineBins[swap.to]
+      // Swap the lines, by working out the difference between the bin centers
+      const xDiff = fromBin.square.center.x - toBin.square.center.x
+      const yDiff = fromBin.square.center.y - toBin.square.center.y
+      // Now we want to move the lines in the fromBin to the toBin
+      const toLines = []
+      for (let j = 0; j < fromBin.lines.length; j++) {
+        const line = fromBin.lines[j]
+        line[0].x -= xDiff
+        line[0].y -= yDiff
+        line[1].x -= xDiff
+        line[1].y -= yDiff
+        toLines.push(line)
+      }
+      // Now we want to move the lines in the toBin to the fromBin
+      const fromLines = []
+      for (let j = 0; j < toBin.lines.length; j++) {
+        const line = toBin.lines[j]
+        line[0].x += xDiff
+        line[0].y += yDiff
+        line[1].x += xDiff
+        line[1].y += yDiff
+        fromLines.push(line)
+      }
+      // Now we want to swap the lines
+      fromBin.lines = toLines
+      toBin.lines = fromLines
+    }
+
+    // Recalculate the fullBinsList, emptying it first
+    fullBinsList.length = 0
+    for (const bin in lineBins) {
+      if (lineBins[bin].lines.length > 0) fullBinsList.push(bin)
+    }
+
+    // Now we want to randomly pick 10% of the full bins to empty
+    const binsToEmpty = []
+    for (let i = 0; i < fullBinsList.length * 0.1; i++) {
+      const bin = fullBinsList[Math.floor(fxrand() * fullBinsList.length)]
+      binsToEmpty.push(bin)
+      fullBinsList.splice(fullBinsList.indexOf(bin), 1)
+    }
+    // Now we want to empty the bins
+    for (let i = 0; i < binsToEmpty.length; i++) {
+      const bin = binsToEmpty[i]
+      lineBins[bin].lines.length = 0
+    }
+
+    // Now we want to remove any lines where the middle of them is outside of the borders
+    for (const bin in lineBins) {
+      const lines = lineBins[bin].lines
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        const midX = line[0].x + (line[1].x - line[0].x) / 2
+        const midY = line[0].y + (line[1].y - line[0].y) / 2
+        if (midX < w * features.sideBorder || midX > w - w * features.sideBorder || midY < h * features.topBorder || midY > h - h * features.bottomBorder) {
+          lines.splice(i, 1)
+          i--
+        }
+      }
+    }
+
+    // Work out the bounding box of all the lines
+    const boundingBox = {
+      min: {
+        x: 9999999,
+        y: 9999999
+      },
+      max: {
+        x: -9999999,
+        y: -9999999
+      }
+    }
+    for (const bin in lineBins) {
+      for (let i = 0; i < lineBins[bin].lines.length; i++) {
+        const line = lineBins[bin].lines[i]
+        if (line[0].x < boundingBox.min.x) boundingBox.min.x = line[0].x
+        if (line[0].y < boundingBox.min.y) boundingBox.min.y = line[0].y
+        if (line[0].x > boundingBox.max.x) boundingBox.max.x = line[0].x
+        if (line[0].y > boundingBox.max.y) boundingBox.max.y = line[0].y
+        if (line[1].x < boundingBox.min.x) boundingBox.min.x = line[1].x
+        if (line[1].y < boundingBox.min.y) boundingBox.min.y = line[1].y
+        if (line[1].x > boundingBox.max.x) boundingBox.max.x = line[1].x
+        if (line[1].y > boundingBox.max.y) boundingBox.max.y = line[1].y
+      }
+    }
+    // Get the center of the bounding box
+    boundingBox.center = {
+      x: boundingBox.min.x + (boundingBox.max.x - boundingBox.min.x) / 2,
+      y: boundingBox.min.y + (boundingBox.max.y - boundingBox.min.y) / 2
+    }
+    // Work out the difference between the bounding box and the canvas
+    const xDiff = w / 2 - boundingBox.center.x
+    const yDiff = h / 2 - boundingBox.center.y
+
+    // Now we want to move all the lines by the difference
+    for (const bin in lineBins) {
+      for (let i = 0; i < lineBins[bin].lines.length; i++) {
+        const line = lineBins[bin].lines[i]
+        line[0].x += xDiff
+        line[0].y += yDiff
+        line[1].x += xDiff
+        line[1].y += yDiff
+      }
+    }
+
     // Now we need to go through all the lineBins putting the lines back into the line holder
     // in the correct format
     features.lineHolder = []
@@ -590,37 +827,83 @@ const drawCanvas = async () => {
         lines: [],
         colour: features.palette[layer]
       })
-      for (const bin in lineBins) {
-        // Loop through all the lines in the bin
-        for (let i = 0; i < lineBins[bin].lines.length; i++) {
-          const line = lineBins[bin].lines[i]
-          if (line.layer === layer) {
-            line.binIndex = bin
-            line.bin = lineBins[bin]
-            features.lineHolder[layer].lines.push(line)
+    }
+    for (const bin in lineBins) {
+      // Loop through all the lines in the bin
+      for (let i = 0; i < lineBins[bin].lines.length; i++) {
+        const line = lineBins[bin].lines[i]
+        line.binIndex = bin
+        line.bin = lineBins[bin]
+        features.lineHolder[line.layer].lines.push(line)
+      }
+    }
+
+    //  Now we need to work out the empty boxes for the features, so we
+    // can fill them in with colours
+    // First find all the empty bins
+    const emptyBins = []
+    for (const bin in lineBins) {
+      if (lineBins[bin].lines.length === 0) emptyBins.push(bin)
+    }
+    // Now loop through the emptyBins, pitting the details into the features
+    for (let i = 0; i < emptyBins.length; i++) {
+      const bin = emptyBins[i]
+      const square = lineBins[bin].square
+      // Pick a random colour for the square
+      square.colour1 = Math.floor(Math.random() * features.layers)
+      square.colour2 = Math.floor(Math.random() * features.layers)
+      square.hasSolid = fxrand() < 0.5
+      square.hasDots = fxrand() < 0.5
+      if (!square.hasSolid && !square.hasDots) square.hasDots = true
+      features.emptyBoxes.push(square)
+      // Now we are going to slam some lines into the line holder
+      if (square.hasSolid) {
+        const numberOfLines = Math.floor((24 - (features.squaresAcross * 2)) * 4) + Math.floor(fxrand() * 4 - 2)
+        const lineStep = (square.bottom - square.top) / numberOfLines
+        for (let x = 0; x <= numberOfLines; x++) {
+          const line = [
+            { x: square.left - (fxrand() * w / features.squaresAcross / 10), y: square.top + x * lineStep - (fxrand() * h / features.squaresAcross / 40) },
+            { x: square.right + (fxrand() * w / features.squaresAcross / 10), y: square.top + x * lineStep - (fxrand() * h / features.squaresAcross / 40) }
+          ]
+          features.lineHolder[square.colour1].lines.push(line)
+        }
+      }
+
+      // If we have dots then we need to make lots of dots which we will draw later
+      if (square.hasDots) {
+        const numberOfDots = 24 - (features.squaresAcross * 2)
+        const dotSize = (square.bottom - square.top) / numberOfDots
+        // We are going to make a circle out of a number of points, the circle will
+        // have a radius of the dotSize, and then we'll move it to the correct position
+        // We'll then draw a circle at each point
+        const circlePoints = []
+        const numberOfCirclePoints = 10
+        for (let x = 0; x < numberOfCirclePoints; x++) {
+          const angle = x / numberOfCirclePoints * Math.PI * 2
+          circlePoints.push({
+            x: Math.cos(angle) * dotSize / 8,
+            y: Math.sin(angle) * dotSize / 8
+          })
+        }
+        for (let x = 0; x < numberOfDots; x++) {
+          for (let y = 0; y < numberOfDots; y++) {
+            // Make a copy of the circle points
+            const points = JSON.parse(JSON.stringify(circlePoints))
+            // Move the points to the correct position
+            for (let i = 0; i < points.length; i++) {
+              points[i].x += square.left + x * dotSize + dotSize / 2
+              points[i].y += square.top + y * dotSize + dotSize / 2
+            }
+            // Add the first point to the end of the array
+            points.push(points[0])
+
+            // Add the points to the line holder
+            features.lineHolder[square.colour2].lines.push(points)
           }
         }
       }
     }
 
-    // Now go through all the lines and put them back into the line holder
-    // in the correct format
-    /*
-    features.lineHolder = []
-    for (let layer = 0; layer < features.layers; layer++) {
-      // loop through all the lines
-      features.lineHolder.push({
-        lines: [],
-        colour: features.palette[layer]
-      })
-      for (let i = 0; i < allLines.length; i++) {
-        const line = allLines[i]
-        if (line.layer === layer) {
-          features.lineHolder[layer].lines.push(line)
-        }
-      }
-    }
-    */
     features.linesSet = true
   }
 
@@ -636,13 +919,14 @@ const drawCanvas = async () => {
     ctx.beginPath()
     for (let i = 0; i < features.lineHolder[layer].lines.length; i++) {
       const line = features.lineHolder[layer].lines[i]
-      // if (line.binIndex !== '2,2') {
-      // Draw the line by moving to the first point, then looping through the rest
-      ctx.moveTo(line[0].x, line[0].y)
-      for (let j = 1; j < line.length; j++) {
-        ctx.lineTo(line[j].x, line[j].y)
+      // Only draw it if the first and line point are within the canvas
+      if (line[0].x > 0 && line[0].x < w && line[0].y > 0 && line[0].y < h && line[line.length - 1].x > 0 && line[line.length - 1].x < w && line[line.length - 1].y > 0 && line[line.length - 1].y < h) {
+        // Draw the line by moving to the first point, then looping through the rest
+        ctx.moveTo(line[0].x, line[0].y)
+        for (let j = 1; j < line.length; j++) {
+          ctx.lineTo(line[j].x, line[j].y)
+        }
       }
-      // }
     }
     ctx.stroke()
     // Reset the blend mode
