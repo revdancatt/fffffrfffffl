@@ -116,7 +116,9 @@ const makeFeatures = () => {
   features.palette = []
   while (features.palette.length < features.layers) {
     features.paletteIndex = Math.floor(fxrand() * palettes.length)
+    features.paletteName = palettes[features.paletteIndex].name
     features.palette = palettes[features.paletteIndex].colors.map((c) => c.value)
+    features.paletteNames = palettes[features.paletteIndex].colors.map((c) => c.name)
   }
 
   // We are going to have some perlin noise so we'll have some offsets and scale
@@ -385,7 +387,7 @@ const drawCanvas = async () => {
     ctx.fillRect(0, 0, w * 2, h * 2)
     ctx.restore()
   } else {
-    ctx.fillStyle = '#F9F9F9'
+    ctx.fillStyle = '#fff'
     ctx.fillRect(0, 0, w, h)
   }
 
@@ -567,8 +569,32 @@ const PAPER = { // eslint-disable-line no-unused-vars
 const downloadSVG = async size => {
   // Loop through the layers and download each one
   for (let layer = 0; layer < features.layers; layer++) {
-    await wrapSVG(features.lineHolder[layer].lines, PAPER[size], `fffffrfffffl_${size}_${layer}_${fxhash}`)
+    await wrapSVG(features.lineHolder[layer].lines, PAPER[size], `fffffrfffffl_${size}_${layer}_${features.paletteName}_${features.paletteNames[layer]}_${features.palette[layer]}_${fxhash}`)
   }
+  // We also want to make a swatch file, first create a canvas
+  const swatchCanvas = document.createElement('canvas')
+  swatchCanvas.width = 480
+  swatchCanvas.height = 640
+  const swatchCtx = swatchCanvas.getContext('2d')
+  // work out how high each swatch should be
+  const swatchHeight = swatchCanvas.height / features.layers
+  // Now draw a rectangle for each colour in the layer
+  for (let layer = 0; layer < features.layers; layer++) {
+    swatchCtx.fillStyle = features.palette[layer]
+    swatchCtx.fillRect(0, layer * swatchHeight, swatchCanvas.width, swatchHeight)
+  }
+  // Now we can download the swatch
+  const element = document.createElement('a')
+  element.setAttribute('download', `fffffrfffffl_swatch_${size}_${fxhash}`)
+  element.style.display = 'none'
+  document.body.appendChild(element)
+  let imageBlob = null
+  imageBlob = await new Promise(resolve => swatchCanvas.toBlob(resolve, 'image/png'))
+  element.setAttribute('href', window.URL.createObjectURL(imageBlob, {
+    type: 'image/png'
+  }))
+  element.click()
+  document.body.removeChild(element)
 }
 
 const wrapSVG = async (lines, size, filename) => {
