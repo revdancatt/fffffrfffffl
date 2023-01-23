@@ -1,4 +1,4 @@
-/* global preloadImagesTmr fxhash fxrand paper1Loaded noise palettes Blob */
+/* global preloadImagesTmr fxhash fxrand paper1Loaded noise palettes PAPER Line page Blob */
 
 //
 //  fxhash - fffffrfffffl
@@ -242,6 +242,35 @@ const makeFeatures = () => {
   }
 
   features.emptyBoxes = []
+
+  // Now work out the warps
+  features.displacement = {
+    big: {
+      weighting: 0,
+      invert: false,
+      xNudge: fxrand() * 1000 + 4000,
+      yNudge: fxrand() * 1000 + 4000,
+      zNudge: 0,
+      resolution: fxrand() * 200 + 800,
+      amplitude: 200,
+      xScale: 1,
+      yScale: 1
+    },
+    small: {
+      weighting: 0,
+      invert: false,
+      xNudge: fxrand() * 1000 + 4000,
+      yNudge: fxrand() * 1000 + 4000,
+      zNudge: 0,
+      resolution: fxrand() * 2 + 0.5,
+      amplitude: fxrand() * 2 + 0.5,
+      xScale: 1,
+      yScale: 1
+    }
+  }
+  if (fxrand() > 0.5) {
+    features.displacement.big.amplitude = 50
+  }
 }
 
 //  Call the above make features, so we'll have the window.$fxhashFeatures available
@@ -628,7 +657,7 @@ const drawCanvas = async () => {
     const binList = []
     for (const bin in lineBins) binList.push(bin)
 
-    // Randomly pick 30% of the bins
+    // Randomly pick 30% of the bins to rotate
     const binsToRotate = []
     for (let i = 0; i < binList.length * 0.3; i++) {
       const bin = binList[Math.floor(fxrand() * binList.length)]
@@ -850,8 +879,8 @@ const drawCanvas = async () => {
       const bin = emptyBins[i]
       const square = lineBins[bin].square
       // Pick a random colour for the square
-      square.colour1 = Math.floor(Math.random() * features.layers)
-      square.colour2 = Math.floor(Math.random() * features.layers)
+      square.colour1 = Math.floor(fxrand() * features.layers)
+      square.colour2 = Math.floor(fxrand() * features.layers)
       square.hasSolid = fxrand() < 0.5
       square.hasDots = fxrand() < 0.5
       if (!square.hasSolid && !square.hasDots) square.hasDots = true
@@ -893,6 +922,7 @@ const drawCanvas = async () => {
             for (let i = 0; i < points.length; i++) {
               points[i].x += square.left + x * dotSize + dotSize / 2
               points[i].y += square.top + y * dotSize + dotSize / 2
+              points[i].z = 0
             }
             // Add the first point to the end of the array
             points.push(points[0])
@@ -904,12 +934,57 @@ const drawCanvas = async () => {
       }
     }
 
+    // Now we need to convert the lines to ones we deal with, with the page functions
+    const pageLines = []
+    for (let layer = 0; layer < features.layers; layer++) {
+      pageLines.push([])
+      const lines = []
+      // Loop through the lines
+      for (let i = 0; i < features.lineHolder[layer].lines.length; i++) {
+        const line = features.lineHolder[layer].lines[i]
+        const newLine = new Line()
+        // Loop through the points
+        for (let j = 0; j < line.length; j++) {
+          const point = line[j]
+          newLine.addPoint(point.x, point.y)
+        }
+        lines.push(newLine)
+      }
+      // pageLines[layer] = lines
+      pageLines[layer] = page.displace(page.doDecimate(lines, w / 1000), features.displacement.big)
+      // Go through all the points in all the lines so we can set z to 0
+      for (let i = 0; i < pageLines[layer].length; i++) {
+        const line = pageLines[layer][i]
+        for (let j = 0; j < line.points.length; j++) {
+          const point = line.points[j]
+          point.z = 0
+        }
+      }
+
+      pageLines[layer] = page.displace(pageLines[layer], features.displacement.small)
+    }
+
+    // Now we need to convert the lines back to the format we want
+    for (let layer = 0; layer < features.layers; layer++) {
+      features.lineHolder[layer].lines = []
+      for (let i = 0; i < pageLines[layer].length; i++) {
+        const line = pageLines[layer][i]
+        const newLine = []
+        for (let j = 0; j < line.points.length; j++) {
+          const point = line.points[j]
+          newLine.push({ x: point.x, y: point.y })
+        }
+        features.lineHolder[layer].lines.push(newLine)
+      }
+    }
+
     features.linesSet = true
   }
 
   // Now we need to draw all the lines
   // Set the line width
   ctx.lineWidth = w / 400
+  ctx.lineJoin = 'round'
   // Set the blend mode to multiply
   const startTime = new Date().getTime()
   for (let layer = 0; layer < features.layers; layer++) {
@@ -920,8 +995,8 @@ const drawCanvas = async () => {
     for (let i = 0; i < features.lineHolder[layer].lines.length; i++) {
       const line = features.lineHolder[layer].lines[i]
       // Only draw it if the first and line point are within the canvas
-      if (line[0].x > 0 && line[0].x < w && line[0].y > 0 && line[0].y < h && line[line.length - 1].x > 0 && line[line.length - 1].x < w && line[line.length - 1].y > 0 && line[line.length - 1].y < h) {
-        // Draw the line by moving to the first point, then looping through the rest
+      if (line[0].x > w * features.sideBorder && line[0].x < w - (w * features.sideBorder) && line[0].y > h * features.topBottomBorder && line[0].y < h - (h * features.topBottomBorder)) {
+      // Draw the line by moving to the first point, then looping through the rest
         ctx.moveTo(line[0].x, line[0].y)
         for (let j = 1; j < line.length; j++) {
           ctx.lineTo(line[j].x, line[j].y)
@@ -948,15 +1023,6 @@ const autoDownloadCanvas = async (showHash = false) => {
   }))
   element.click()
   document.body.removeChild(element)
-}
-
-const PAPER = { // eslint-disable-line no-unused-vars
-  A1: [59.4, 84.1],
-  A2: [42.0, 59.4],
-  A3: [29.7, 42.0],
-  A4: [21.0, 29.7],
-  A5: [14.8, 21.0],
-  A6: [10.5, 14.8]
 }
 
 const downloadSVG = async size => {
