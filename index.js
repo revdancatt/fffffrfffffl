@@ -119,6 +119,30 @@ const makeFeatures = () => {
   }
 }
 
+// Now I need to add wobble points
+features.wobblePoints = {}
+
+// We want to have four wobble points for each position
+const areas = ['backLine', 'rightSide', 'leftSide', 'skylightBack', 'skyLightRight', 'skyLightFront', 'skyLightLeft']
+areas.forEach(area => {
+  features.wobblePoints[area] = {
+    top: [],
+    bottom: []
+  }
+})
+for (let i = 0; i < 4; i++) {
+  areas.forEach(area => {
+    features.wobblePoints[area].top.push({
+      x: fxrand() - 0.5,
+      y: fxrand() - 0.5
+    })
+    features.wobblePoints[area].bottom.push({
+      x: fxrand() - 0.5,
+      y: fxrand() - 0.5
+    })
+  })
+}
+
 //  Call the above make features, so we'll have the window.$fxhashFeatures available
 //  for fxhash
 makeFeatures()
@@ -169,7 +193,7 @@ const layoutCanvas = async () => {
         canvas.width = 8192 / 2 / ratioMod
       } else {
         canvas.width = 8192 / 2
-        canvas.height = 8192 / 2 / ratioMod
+        canvas.height = 8192 / 2 * ratioMod
       }
     }
   }
@@ -233,6 +257,40 @@ const findIntersection = (line1Point1, line1Point2, line2Point1, line2Point2) =>
   return { x, y }
 }
 
+// We need a function to calculate the point on the ceiling based on two points along the back lines
+// For this we'll need the back lines, the vanishing points and the right and left % positions
+const calculateFloorCeilingPoint = (backRightLine, backLeftLine, rightVanishingPoint, leftVanishingPoint, rightPercent, leftPercent, w, h) => {
+  const topRightMeasurePoint = {
+    x: backRightLine[0].x + ((backRightLine[1].x - backRightLine[0].x) * rightPercent),
+    y: backRightLine[0].y + ((backRightLine[1].y - backRightLine[0].y) * rightPercent)
+  }
+  const topLeftMeasurePoint = {
+    x: backLeftLine[0].x + ((backLeftLine[1].x - backLeftLine[0].x) * leftPercent),
+    y: backLeftLine[0].y + ((backLeftLine[1].y - backLeftLine[0].y) * leftPercent)
+  }
+  // Work out the gradients on the lines to the vanishing point
+  const topRightMeasurePointGradient = (rightVanishingPoint.y - topRightMeasurePoint.y) / (rightVanishingPoint.x - topRightMeasurePoint.x)
+  const topLeftMeasurePointGradient = (leftVanishingPoint.y - topLeftMeasurePoint.y) / (leftVanishingPoint.x - topLeftMeasurePoint.x)
+
+  // Workout the end points of the measure point lines
+  const topRightMeasureEndPoint = {
+    x: topRightMeasurePoint.x - w * 2,
+    y: topRightMeasurePoint.y - (topRightMeasurePointGradient * w * 2)
+  }
+  const topLeftMeasureEndPoint = {
+    x: topLeftMeasurePoint.x + w * 2,
+    y: topLeftMeasurePoint.y + (topLeftMeasurePointGradient * w * 2)
+  }
+  // Now we need to find the intersection of the two lines
+  const thisPoint = findIntersection(topRightMeasurePoint, topRightMeasureEndPoint, topLeftMeasurePoint, topLeftMeasureEndPoint)
+  return thisPoint
+}
+
+const drawLine = (p1, p2, ctx) => {
+  ctx.moveTo(p1.x, p1.y)
+  ctx.lineTo(p2.x, p2.y)
+}
+
 const drawCanvas = async () => {
   //  Let the preloader know that we've hit this function at least once
   drawn = true
@@ -274,6 +332,11 @@ const drawCanvas = async () => {
   const xOffset = w * features.backwall.xOffset + (features.lastMousePos.x * w * 0.1)
   const yOffset = h * features.backwall.yOffset + (features.lastMousePos.y * h * 0.05)
 
+  // ##########################################################################
+  //
+  // Work out where all the points are
+  //
+  // ##########################################################################
   const topPoint = {
     x: xOffset,
     y: -h * features.backwall.height / 2 + yOffset
@@ -316,125 +379,68 @@ const drawCanvas = async () => {
     y: bottomPoint.y + (rightBottomGradient * w)
   }
 
-  // Fill in the back left wall
+  // Now I want to work out the position of a sky light, which is the first percent of the way away from the top of the wall
+  const skyLightPercent1 = features.skylight.back
+  const skyLightPercent2 = features.skylight.back + features.skylight.size
+
+  // Find the intersection of the lines
+  // const skyLightBackPoint = findIntersection(topRightMeasurePoint1, topRightMeasurePoint1EndPoint, topLeftMeasurePoint1, topLeftMeasurePoint1EndPoint)
+  const skyLightBackPoint = calculateFloorCeilingPoint([topPoint, rightWallTopPoint], [topPoint, leftWallTopPoint], rightVanishingPoint, leftVanishingPoint, skyLightPercent1, skyLightPercent1, w, h)
+  const skyLightFrontPoint = calculateFloorCeilingPoint([topPoint, rightWallTopPoint], [topPoint, leftWallTopPoint], rightVanishingPoint, leftVanishingPoint, skyLightPercent2, skyLightPercent2, w, h)
+  const skyLightLeftPoint = calculateFloorCeilingPoint([topPoint, rightWallTopPoint], [topPoint, leftWallTopPoint], rightVanishingPoint, leftVanishingPoint, skyLightPercent1, skyLightPercent2, w, h)
+  const skyLightRightPoint = calculateFloorCeilingPoint([topPoint, rightWallTopPoint], [topPoint, leftWallTopPoint], rightVanishingPoint, leftVanishingPoint, skyLightPercent2, skyLightPercent1, w, h)
+
+  // ##########################################################################
+  //
+  // Now fill in the areas
+  //
+  // ##########################################################################
+
   const leftWallColour = features.backwall.colours.left.hsl
+  const rightWallColour = features.backwall.colours.right.hsl
+  const floorColour = features.backwall.colours.floor.hsl
+  const ceilingColour = {
+    h: 0,
+    s: 0,
+    l: 95
+  }
+  ctx.fillStyle = 'white'
   ctx.beginPath()
+  // Fill in the back left wall
   ctx.moveTo(leftWallTopPoint.x, leftWallTopPoint.y)
   ctx.lineTo(leftWallBottomPoint.x, leftWallBottomPoint.y)
   ctx.lineTo(bottomPoint.x, bottomPoint.y)
   ctx.lineTo(topPoint.x, topPoint.y)
   ctx.closePath()
-  ctx.fillStyle = `hsl(${leftWallColour.h}, ${leftWallColour.s}%, ${leftWallColour.l}%)`
-  ctx.fill()
+  // ctx.fillStyle = `hsl(${leftWallColour.h}, ${leftWallColour.s}%, ${leftWallColour.l}%)`
 
   // Fill in the back right wall
-  const rightWallColour = features.backwall.colours.right.hsl
-  ctx.beginPath()
   ctx.moveTo(rightWallTopPoint.x, rightWallTopPoint.y)
   ctx.lineTo(rightWallBottomPoint.x, rightWallBottomPoint.y)
   ctx.lineTo(bottomPoint.x, bottomPoint.y)
   ctx.lineTo(topPoint.x, topPoint.y)
   ctx.closePath()
-  ctx.fillStyle = `hsl(${rightWallColour.h}, ${rightWallColour.s}%, ${rightWallColour.l}%)`
-  ctx.fill()
+  // ctx.fillStyle = `hsl(${rightWallColour.h}, ${rightWallColour.s}%, ${rightWallColour.l}%)`
 
   // Fill in the floor
-  const floorColour = features.backwall.colours.floor.hsl
-  ctx.beginPath()
   ctx.moveTo(leftWallBottomPoint.x, leftWallBottomPoint.y)
   ctx.lineTo(bottomPoint.x, bottomPoint.y)
   ctx.lineTo(rightWallBottomPoint.x, rightWallBottomPoint.y)
   ctx.lineTo(rightWallBottomPoint.x, h * 10)
   ctx.lineTo(leftWallBottomPoint.x, h * 10)
   ctx.closePath()
-  ctx.fillStyle = `hsl(${floorColour.h}, ${floorColour.s}%, ${floorColour.l}%)`
-  ctx.fill()
+  // ctx.fillStyle = `hsl(${floorColour.h}, ${floorColour.s}%, ${floorColour.l}%)`
 
   // Fill in the ceiling in just off white
-  ctx.beginPath()
   ctx.moveTo(leftWallTopPoint.x, leftWallTopPoint.y)
   ctx.lineTo(topPoint.x, topPoint.y)
   ctx.lineTo(rightWallTopPoint.x, rightWallTopPoint.y)
   ctx.lineTo(rightWallTopPoint.x, -h * 10)
   ctx.lineTo(leftWallTopPoint.x, -h * 10)
   ctx.closePath()
-  ctx.fillStyle = 'hsl(0, 0%, 95%)'
+  // ctx.fillStyle = `hsl(${ceilingColour.h}, ${ceilingColour.s}%, ${ceilingColour.l}%)`
   ctx.fill()
 
-  // Draw the lines
-  ctx.beginPath()
-
-  // Back wall
-  ctx.moveTo(topPoint.x, topPoint.y)
-  ctx.lineTo(bottomPoint.x, bottomPoint.y)
-
-  // Draw the top left line
-  ctx.moveTo(topPoint.x, topPoint.y)
-  ctx.lineTo(leftWallTopPoint.x, leftWallTopPoint.y)
-  // Draw the bottom left line
-  ctx.moveTo(bottomPoint.x, bottomPoint.y)
-  ctx.lineTo(leftWallBottomPoint.x, leftWallBottomPoint.y)
-  // Draw the top right line
-  ctx.moveTo(topPoint.x, topPoint.y)
-  ctx.lineTo(rightWallTopPoint.x, rightWallTopPoint.y)
-  // Draw the bottom right line
-  ctx.moveTo(bottomPoint.x, bottomPoint.y)
-  ctx.lineTo(rightWallBottomPoint.x, rightWallBottomPoint.y)
-
-  ctx.stroke()
-
-  // Now I want to work out the position of a sky light, which is the first percent of the way away from the top of the wall
-  const skyLightPercent1 = features.skylight.back
-  const skyLightPercent2 = features.skylight.back + features.skylight.size
-  const topRightMeasurePoint1 = {
-    x: topPoint.x + (rightWallTopPoint.x - topPoint.x) * skyLightPercent1,
-    y: topPoint.y + (rightWallTopPoint.y - topPoint.y) * skyLightPercent1
-  }
-  const topLeftMeasurePoint1 = {
-    x: topPoint.x + (leftWallTopPoint.x - topPoint.x) * skyLightPercent1,
-    y: topPoint.y + (leftWallTopPoint.y - topPoint.y) * skyLightPercent1
-  }
-  // Do the same but the second percent
-  const topRightMeasurePoint2 = {
-    x: topPoint.x + (rightWallTopPoint.x - topPoint.x) * skyLightPercent2,
-    y: topPoint.y + (rightWallTopPoint.y - topPoint.y) * skyLightPercent2
-  }
-  const topLeftMeasurePoint2 = {
-    x: topPoint.x + (leftWallTopPoint.x - topPoint.x) * skyLightPercent2,
-    y: topPoint.y + (leftWallTopPoint.y - topPoint.y) * skyLightPercent2
-  }
-  // Now work out the gradients of the lines to the vanish point
-  const topRightMeasurePoint1Gradient = (rightVanishingPoint.y - topRightMeasurePoint1.y) / (rightVanishingPoint.x - topRightMeasurePoint1.x)
-  const topRightMeasurePoint2Gradient = (rightVanishingPoint.y - topRightMeasurePoint2.y) / (rightVanishingPoint.x - topRightMeasurePoint2.x)
-
-  const topLeftMeasurePoint2Gradient = (leftVanishingPoint.y - topLeftMeasurePoint2.y) / (leftVanishingPoint.x - topLeftMeasurePoint2.x)
-  const topLeftMeasurePoint1Gradient = (leftVanishingPoint.y - topLeftMeasurePoint1.y) / (leftVanishingPoint.x - topLeftMeasurePoint1.x)
-
-  // Now work out the end points of the lines based on the gradient from the measure points to a position offscreen on the opposite side of the vanishing point
-  const topRightMeasurePoint1EndPoint = {
-    x: topRightMeasurePoint1.x - w,
-    y: topRightMeasurePoint1.y - (topRightMeasurePoint1Gradient * w)
-  }
-  const topRightMeasurePoint2EndPoint = {
-    x: topRightMeasurePoint2.x - w,
-    y: topRightMeasurePoint2.y - (topRightMeasurePoint2Gradient * w)
-  }
-  const topLeftMeasurePoint1EndPoint = {
-    x: topLeftMeasurePoint1.x + w,
-    y: topLeftMeasurePoint1.y + (topLeftMeasurePoint1Gradient * w)
-  }
-  const topLeftMeasurePoint2EndPoint = {
-    x: topLeftMeasurePoint2.x + w,
-    y: topLeftMeasurePoint2.y + (topLeftMeasurePoint2Gradient * w)
-  }
-
-  // Find the intersection of the lines
-  const skyLightBackPoint = findIntersection(topRightMeasurePoint1, topRightMeasurePoint1EndPoint, topLeftMeasurePoint1, topLeftMeasurePoint1EndPoint)
-  const skyLightFrontPoint = findIntersection(topRightMeasurePoint2, topRightMeasurePoint2EndPoint, topLeftMeasurePoint2, topLeftMeasurePoint2EndPoint)
-  const skyLightLeftPoint = findIntersection(topRightMeasurePoint1, topRightMeasurePoint1EndPoint, topLeftMeasurePoint2, topLeftMeasurePoint2EndPoint)
-  const skyLightRightPoint = findIntersection(topRightMeasurePoint2, topRightMeasurePoint2EndPoint, topLeftMeasurePoint1, topLeftMeasurePoint1EndPoint)
-
-  // Draw circles on the skyLight points
   // Set a mask from the four points
   ctx.save()
   ctx.beginPath()
@@ -459,6 +465,7 @@ const drawCanvas = async () => {
   ctx.lineTo(skyLightBackPoint.x, skyLightBackPoint.y - h * skylightHeight)
   ctx.closePath()
   ctx.fill()
+
   // Do the left side in darker grey
   ctx.fillStyle = 'hsl(0, 0%, 90%)'
   ctx.beginPath()
@@ -469,31 +476,162 @@ const drawCanvas = async () => {
   ctx.closePath()
   ctx.fill()
 
-  // Draw a line at the back in black
-  ctx.strokeStyle = 'hsl(0, 0%, 66%)'
-  ctx.lineWidth = w / 500
-  ctx.beginPath()
-  ctx.moveTo(skyLightBackPoint.x, skyLightBackPoint.y)
-  ctx.lineTo(skyLightBackPoint.x, skyLightBackPoint.y - h * skylightHeight)
-  ctx.lineTo(skyLightRightPoint.x, skyLightRightPoint.y - h * skylightHeight)
-  ctx.moveTo(skyLightBackPoint.x, skyLightBackPoint.y - h * skylightHeight)
-  ctx.lineTo(skyLightLeftPoint.x, skyLightLeftPoint.y - h * skylightHeight)
-  ctx.stroke()
-
   // restore
   ctx.restore()
 
-  // Draw around the edge of the sky light
-  ctx.strokeStyle = 'hsl(0, 0%, 66%)'
+  // ##########################################################################
+  //
+  // Now draw the lines
+  //
+  // ##########################################################################
+
+  ctx.strokeStyle = 'hsl(0, 0%, 0%)'
   ctx.lineWidth = w / 500
+  ctx.beginPath()
+
+  // Loop through the wobble points and draw a line between them
+  let wobbleDiv = 50
+  for (let i = 0; i < features.wobblePoints.backLine.top.length - 1; i++) {
+    // Back wall
+    const pBackTop = {
+      x: topPoint.x + features.wobblePoints.backLine.top[i].x * w / wobbleDiv,
+      y: topPoint.y + features.wobblePoints.backLine.top[i].y * w / wobbleDiv
+    }
+    const pBackBottom = {
+      x: bottomPoint.x + features.wobblePoints.backLine.bottom[i].x * w / wobbleDiv,
+      y: bottomPoint.y + features.wobblePoints.backLine.bottom[i].y * w / wobbleDiv
+    }
+    const pRightTop = {
+      x: rightWallTopPoint.x + features.wobblePoints.rightSide.top[i].x * w / wobbleDiv,
+      y: rightWallTopPoint.y + features.wobblePoints.rightSide.top[i].y * w / wobbleDiv
+    }
+    const pRightBottom = {
+      x: rightWallBottomPoint.x + features.wobblePoints.rightSide.bottom[i].x * w / wobbleDiv,
+      y: rightWallBottomPoint.y + features.wobblePoints.rightSide.bottom[i].y * w / wobbleDiv
+    }
+    const pLeftTop = {
+      x: leftWallTopPoint.x + features.wobblePoints.leftSide.top[i].x * w / wobbleDiv,
+      y: leftWallTopPoint.y + features.wobblePoints.leftSide.top[i].y * w / wobbleDiv
+    }
+    const pLeftBottom = {
+      x: leftWallBottomPoint.x + features.wobblePoints.leftSide.bottom[i].x * w / wobbleDiv,
+      y: leftWallBottomPoint.y + features.wobblePoints.leftSide.bottom[i].y * w / wobbleDiv
+    }
+
+    drawLine(pBackTop, pBackBottom, ctx)
+    drawLine(pBackTop, pRightTop, ctx)
+    drawLine(pBackBottom, pRightBottom, ctx)
+    drawLine(pBackTop, pLeftTop, ctx)
+    drawLine(pBackBottom, pLeftBottom, ctx)
+  }
+  ctx.stroke()
+
+  // Set a mask from the four points
+  ctx.save()
   ctx.beginPath()
   ctx.moveTo(skyLightBackPoint.x, skyLightBackPoint.y)
   ctx.lineTo(skyLightRightPoint.x, skyLightRightPoint.y)
   ctx.lineTo(skyLightFrontPoint.x, skyLightFrontPoint.y)
   ctx.lineTo(skyLightLeftPoint.x, skyLightLeftPoint.y)
   ctx.closePath()
+  ctx.clip()
+
+  ctx.strokeStyle = 'hsl(0, 0%, 66%)'
+  ctx.lineWidth = w / 500
+  ctx.beginPath()
+  wobbleDiv = 100
+
+  for (let i = 0; i < features.wobblePoints.backLine.top.length - 1; i++) {
+    const pBackBottom = {
+      x: skyLightBackPoint.x + features.wobblePoints.skylightBack.bottom[i].x * w / wobbleDiv,
+      y: skyLightBackPoint.y + features.wobblePoints.skylightBack.bottom[i].y * w / wobbleDiv
+    }
+    const pBackTop = {
+      x: skyLightBackPoint.x + features.wobblePoints.skylightBack.top[i].x * w / wobbleDiv,
+      y: skyLightBackPoint.y + features.wobblePoints.skylightBack.top[i].y * w / wobbleDiv - h * skylightHeight
+    }
+    const pRightTop = {
+      x: skyLightRightPoint.x + features.wobblePoints.skyLightRight.top[i].x * w / wobbleDiv,
+      y: skyLightRightPoint.y + features.wobblePoints.skyLightRight.top[i].y * w / wobbleDiv - h * skylightHeight
+    }
+    const pLeftTop = {
+      x: skyLightLeftPoint.x + features.wobblePoints.skyLightLeft.top[i].x * w / wobbleDiv,
+      y: skyLightLeftPoint.y + features.wobblePoints.skyLightLeft.top[i].y * w / wobbleDiv - h * skylightHeight
+    }
+    drawLine(pBackTop, pBackBottom, ctx)
+    drawLine(pBackTop, pRightTop, ctx)
+    drawLine(pBackTop, pLeftTop, ctx)
+  }
   ctx.stroke()
 
+  ctx.restore()
+
+  // Draw around the edge of the sky light
+  ctx.strokeStyle = 'hsl(0, 0%, 66%)'
+  ctx.lineWidth = w / 500
+  ctx.beginPath()
+
+  for (let i = 0; i < features.wobblePoints.backLine.top.length - 1; i++) {
+    const pSLBack = {
+      x: skyLightBackPoint.x + features.wobblePoints.skylightBack.bottom[i].x * w / wobbleDiv,
+      y: skyLightBackPoint.y + features.wobblePoints.skylightBack.bottom[i].y * w / wobbleDiv
+    }
+    const pSLRight = {
+      x: skyLightRightPoint.x + features.wobblePoints.skyLightRight.bottom[i].x * w / wobbleDiv,
+      y: skyLightRightPoint.y + features.wobblePoints.skyLightRight.bottom[i].y * w / wobbleDiv
+    }
+    const pSLFront = {
+      x: skyLightFrontPoint.x + features.wobblePoints.skyLightFront.bottom[i].x * w / wobbleDiv,
+      y: skyLightFrontPoint.y + features.wobblePoints.skyLightFront.bottom[i].y * w / wobbleDiv
+    }
+    const pSLLeft = {
+      x: skyLightLeftPoint.x + features.wobblePoints.skyLightLeft.bottom[i].x * w / wobbleDiv,
+      y: skyLightLeftPoint.y + features.wobblePoints.skyLightLeft.bottom[i].y * w / wobbleDiv
+    }
+    drawLine(pSLBack, pSLRight, ctx)
+    drawLine(pSLRight, pSLFront, ctx)
+    drawLine(pSLFront, pSLLeft, ctx)
+    drawLine(pSLLeft, pSLBack, ctx)
+  }
+  ctx.stroke()
+
+  /*
+  const rightLineTop = [topPoint, rightWallTopPoint]
+  const rightLineBottom = [bottomPoint, rightWallBottomPoint]
+  const leftLineTop = [topPoint, leftWallTopPoint]
+  const leftLineBottom = [bottomPoint, leftWallBottomPoint]
+
+  // Draw a grid of points along the cleaning every 10% of the way
+  const dist = 14
+  for (let r = 0; r < dist; r++) {
+    for (let l = 0; l < dist; l++) {
+      const CeilingPoint = calculateFloorCeilingPoint(rightLineTop, leftLineTop, rightVanishingPoint, leftVanishingPoint, r / 10, l / 10, w, h)
+      const floorPoint = calculateFloorCeilingPoint(rightLineBottom, leftLineBottom, rightVanishingPoint, leftVanishingPoint, r / 10, l / 10, w, h)
+      ctx.fillStyle = 'hsl(0, 0%, 0%)'
+      ctx.beginPath()
+      ctx.arc(CeilingPoint.x, CeilingPoint.y, w * Math.sqrt(r * l / 500000), 0, 2 * Math.PI)
+      ctx.fill()
+      ctx.beginPath()
+      ctx.arc(floorPoint.x, floorPoint.y, w * Math.sqrt(r * l / 500000), 0, 2 * Math.PI)
+      ctx.fill()
+    }
+  }
+
+  for (let r = 0; r < dist; r++) {
+    const startPointRight = calculateFloorCeilingPoint(rightLineTop, leftLineTop, rightVanishingPoint, leftVanishingPoint, r / 10, 0, w, h)
+    const endPointRight = calculateFloorCeilingPoint(rightLineTop, leftLineTop, rightVanishingPoint, leftVanishingPoint, r / 10, dist / 10, w, h)
+    const startPointLeft = calculateFloorCeilingPoint(rightLineTop, leftLineTop, rightVanishingPoint, leftVanishingPoint, 0, r / 10, w, h)
+    const endPointLeft = calculateFloorCeilingPoint(rightLineTop, leftLineTop, rightVanishingPoint, leftVanishingPoint, dist / 10, r / 10, w, h)
+    ctx.strokeStyle = 'hsl(0, 0%, 50%)'
+    ctx.lineWidth = w / 500
+    ctx.beginPath()
+    ctx.moveTo(startPointRight.x, startPointRight.y)
+    ctx.lineTo(endPointRight.x, endPointRight.y)
+    ctx.moveTo(startPointLeft.x, startPointLeft.y)
+    ctx.lineTo(endPointLeft.x, endPointLeft.y)
+    ctx.stroke()
+  }
+  */
   // restore the state
   ctx.restore()
 
