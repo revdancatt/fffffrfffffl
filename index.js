@@ -1,4 +1,4 @@
-/* global preloadImagesTmr fxhash fxrand paper1Loaded palettes */
+/* global preloadImagesTmr fxhash fxrand paper1Loaded palettes noise */
 
 //
 //  fxhash - fffffrfffffl
@@ -99,9 +99,11 @@ const makeFeatures = () => {
     colours: {
       left: features.palette.colors[0],
       right: features.palette.colors[features.palette.colors.length - 1],
-      floor: features.palette.colors[1]
+      floor: features.palette.colors[features.palette.colors.length - 2]
     }
   }
+
+  if (features.backwall.colours.right.hsl.l > 98) features.backwall.colours.right.hsl.s = 0
 
   // Work out the size of the skylight
   features.skylight = {
@@ -118,30 +120,39 @@ const makeFeatures = () => {
     x: 0,
     y: 0
   }
-}
 
-// Now I need to add wobble points
-features.wobblePoints = {}
+  // Now I need to add wobble points
+  features.wobblePoints = {}
 
-// We want to have four wobble points for each position
-const areas = ['backLine', 'rightSide', 'leftSide', 'skylightBack', 'skyLightRight', 'skyLightFront', 'skyLightLeft']
-areas.forEach(area => {
-  features.wobblePoints[area] = {
-    top: [],
-    bottom: []
-  }
-})
-for (let i = 0; i < 6; i++) {
+  // We want to have four wobble points for each position
+  const areas = ['backLine', 'rightSide', 'leftSide', 'skylightBack', 'skyLightRight', 'skyLightFront', 'skyLightLeft']
   areas.forEach(area => {
-    features.wobblePoints[area].top.push({
-      x: fxrand() - 0.5,
-      y: fxrand() - 0.5
-    })
-    features.wobblePoints[area].bottom.push({
-      x: fxrand() - 0.5,
-      y: fxrand() - 0.5
-    })
+    features.wobblePoints[area] = {
+      top: [],
+      bottom: []
+    }
   })
+  for (let i = 0; i < 6; i++) {
+    areas.forEach(area => {
+      features.wobblePoints[area].top.push({
+        x: fxrand() - 0.5,
+        y: fxrand() - 0.5
+      })
+      features.wobblePoints[area].bottom.push({
+        x: fxrand() - 0.5,
+        y: fxrand() - 0.5
+      })
+    })
+  }
+
+  // Now I want a large long array to hold the noise random points
+  features.noisePoints = []
+  const noiseY = fxrand() * 4000 + 3000
+  const noiseX = fxrand() * 4000 + 3000
+  for (let i = 0; i < 100000; i++) {
+    features.noisePoints.push(noise.perlin2(noiseX + i / 15, noiseY) * 2 - 1)
+  }
+  features.noisePointer = 0
 }
 
 //  Call the above make features, so we'll have the window.$fxhashFeatures available
@@ -287,18 +298,39 @@ const calculateFloorCeilingPoint = (backRightLine, backLeftLine, rightVanishingP
   return thisPoint
 }
 
-const drawLine = (p1, p2, ctx, startWithMove = true) => {
+const drawLine = (p1, p2, ctx, alignment, size, segments, startWithMove = true) => {
+  segments = Math.floor(segments)
   if (startWithMove) {
     ctx.moveTo(p1.x, p1.y)
   } else {
     ctx.lineTo(p1.x, p1.y)
   }
-  ctx.lineTo(p2.x, p2.y)
+  // Loop through the segments
+  for (let i = 1; i <= segments; i++) {
+    // Work out the distance along the line for this segment
+    const distancePercent = i / segments
+    // Work out the x and y positions for this segment
+    let x = p1.x + ((p2.x - p1.x) * distancePercent)
+    let y = p1.y + ((p2.y - p1.y) * distancePercent)
+    /*
+    if (alignment === 'horizontal') {
+      y += features.noisePoints[features.noisePointer] * size
+    } else {
+      x += features.noisePoints[features.noisePointer] * size
+    }
+    */
+    y += features.noisePoints[features.noisePointer] * size
+    x += features.noisePoints[features.noisePointer] * size
+    features.noisePointer++
+    ctx.lineTo(x, y)
+  }
 }
 
 const drawCanvas = async () => {
   //  Let the preloader know that we've hit this function at least once
   drawn = true
+  // always reset the noise pointer
+  features.noisePointer = 0
 
   const canvas = document.getElementById('target')
   const ctx = canvas.getContext('2d')
@@ -439,15 +471,20 @@ const drawCanvas = async () => {
   ctx.lineTo(leftWallBottomPoint.x, h * 10)
   ctx.closePath()
   // ctx.fillStyle = `hsl(${floorColour.h}, ${floorColour.s}%, ${floorColour.l}%)`
+  ctx.fill()
 
   // Fill in the ceiling in just off white
+  const ceilingGradient = ctx.createLinearGradient(topPoint.x, topPoint.y, topPoint.x, -h / 2)
+  ceilingGradient.addColorStop(0, `hsl(${ceilingColour.h}, ${ceilingColour.s}%, ${ceilingColour.l * 0.8}%)`)
+  ceilingGradient.addColorStop(1, `hsl(${ceilingColour.h}, ${ceilingColour.s}%, ${ceilingColour.l * 1}%)`)
+  ctx.fillStyle = ceilingGradient
+  ctx.beginPath()
   ctx.moveTo(leftWallTopPoint.x, leftWallTopPoint.y)
   ctx.lineTo(topPoint.x, topPoint.y)
   ctx.lineTo(rightWallTopPoint.x, rightWallTopPoint.y)
   ctx.lineTo(rightWallTopPoint.x, -h * 10)
   ctx.lineTo(leftWallTopPoint.x, -h * 10)
   ctx.closePath()
-  // ctx.fillStyle = `hsl(${ceilingColour.h}, ${ceilingColour.s}%, ${ceilingColour.l}%)`
   ctx.fill()
 
   // Set a mask from the four points
@@ -490,6 +527,8 @@ const drawCanvas = async () => {
 
   // Now we want to loop through the walls, adding the wobble and filling in the walls in colour
   let wobbleDiv = 25
+  let wobbleMod = w / 200
+  const defaultSegments = 100
   for (let i = fillsFrom; i < fillsTo; i++) {
     const pBackTop = {
       x: topPoint.x + features.wobblePoints.backLine.top[i].x * w / wobbleDiv,
@@ -517,34 +556,44 @@ const drawCanvas = async () => {
     }
 
     // Do the right wall
-    ctx.fillStyle = `hsl(${rightWallColour.h}, ${rightWallColour.s}%, ${rightWallColour.l}%, 0.5)`
+    // create a gradient from the left to the right
+    const rightWallGradient = ctx.createLinearGradient(pBackTop.x, pBackTop.y, pRightTop.x, pBackTop.y)
+    rightWallGradient.addColorStop(0, `hsl(${rightWallColour.h}, ${rightWallColour.s}%, ${rightWallColour.l * 0.5}%)`)
+    rightWallGradient.addColorStop(1, `hsl(${rightWallColour.h}, ${rightWallColour.s}%, ${rightWallColour.l}%)`)
+    ctx.fillStyle = rightWallGradient
     ctx.beginPath()
     ctx.moveTo(pBackTop.x, pBackTop.y)
-    drawLine(pBackTop, pRightTop, ctx, false)
-    drawLine(pRightTop, pRightBottom, ctx, false)
-    drawLine(pRightBottom, pBackBottom, ctx, false)
-    drawLine(pBackBottom, pBackTop, ctx, false)
+    drawLine(pBackTop, pRightTop, ctx, 'horizontal', wobbleMod, defaultSegments, false)
+    drawLine(pRightTop, pRightBottom, ctx, 'vertical', wobbleMod, defaultSegments, false)
+    drawLine(pRightBottom, pBackBottom, ctx, 'horizontal', wobbleMod, defaultSegments, false)
+    drawLine(pBackBottom, pBackTop, ctx, 'vertical', wobbleMod, defaultSegments / 3, false)
     ctx.fill()
 
     // Do the left wall
-    ctx.fillStyle = `hsl(${leftWallColour.h}, ${leftWallColour.s}%, ${leftWallColour.l}%, 0.5)`
+    const leftWallGradient = ctx.createLinearGradient(pBackTop.x, pBackTop.y, pLeftTop.x, pBackTop.y)
+    leftWallGradient.addColorStop(0, `hsl(${leftWallColour.h}, ${leftWallColour.s}%,${(leftWallColour.l + 1) * 0.5}%)`)
+    leftWallGradient.addColorStop(1, `hsl(${leftWallColour.h}, ${leftWallColour.s}%, ${leftWallColour.l}%)`)
+    ctx.fillStyle = leftWallGradient
     ctx.beginPath()
     ctx.moveTo(pBackTop.x, pBackTop.y)
-    drawLine(pBackTop, pLeftTop, ctx, false)
-    drawLine(pLeftTop, pLeftBottom, ctx, false)
-    drawLine(pLeftBottom, pBackBottom, ctx, false)
-    drawLine(pBackBottom, pBackTop, ctx, false)
+    drawLine(pBackTop, pLeftTop, ctx, 'horizontal', wobbleMod, defaultSegments, false)
+    drawLine(pLeftTop, pLeftBottom, ctx, 'vertical', wobbleMod, defaultSegments, false)
+    drawLine(pLeftBottom, pBackBottom, ctx, 'horizontal', wobbleMod, defaultSegments, false)
+    drawLine(pBackBottom, pBackTop, ctx, 'vertical', wobbleMod, defaultSegments / 3, false)
     ctx.fill()
 
     // Do the floor
-    ctx.fillStyle = `hsl(${floorColour.h}, ${floorColour.s}%, ${floorColour.l}%, 0.5)`
+    const floorGradient = ctx.createLinearGradient(pBackBottom.x, pBackBottom.y, pBackBottom.x, h)
+    floorGradient.addColorStop(0, `hsl(${floorColour.h}, ${floorColour.s}%,  ${floorColour.l * 0.5}%)`)
+    floorGradient.addColorStop(1, `hsl(${floorColour.h}, ${floorColour.s}%, ${floorColour.l}%)`)
+    ctx.fillStyle = floorGradient
     ctx.beginPath()
     ctx.moveTo(pBackBottom.x, pBackBottom.y)
-    drawLine(pRightBottom, pRightBottom, ctx, false)
+    drawLine(pBackBottom, pRightBottom, ctx, 'horizontal', wobbleMod, defaultSegments, false)
     ctx.lineTo(pRightBottom.x, pRightBottom.y + h * 5)
     ctx.lineTo(pLeftBottom.x, pLeftBottom.y + h * 5)
     ctx.lineTo(pLeftBottom.x, pLeftBottom.y)
-    drawLine(pLeftBottom, pBackBottom, ctx, false)
+    drawLine(pLeftBottom, pBackBottom, ctx, 'horizontal', wobbleMod, defaultSegments, false)
     ctx.fill()
   }
 
@@ -587,14 +636,15 @@ const drawCanvas = async () => {
       y: leftWallBottomPoint.y + features.wobblePoints.leftSide.bottom[i].y * w / wobbleDiv
     }
 
-    drawLine(pBackTop, pBackBottom, ctx)
-    drawLine(pBackTop, pRightTop, ctx)
-    drawLine(pBackBottom, pRightBottom, ctx)
-    drawLine(pBackTop, pLeftTop, ctx)
-    drawLine(pBackBottom, pLeftBottom, ctx)
+    drawLine(pBackTop, pBackBottom, ctx, 'vertical', wobbleMod, defaultSegments / 3)
+    drawLine(pBackTop, pRightTop, ctx, 'horizontal', wobbleMod, defaultSegments)
+    drawLine(pBackBottom, pRightBottom, ctx, 'horizontal', wobbleMod, defaultSegments)
+    drawLine(pBackTop, pLeftTop, ctx, 'horizontal', wobbleMod, defaultSegments)
+    drawLine(pBackBottom, pLeftBottom, ctx, 'horizontal', wobbleMod, defaultSegments)
   }
   ctx.stroke()
 
+  // Now do the SKYLIGHT
   // Set a mask from the four points
   ctx.save()
   ctx.beginPath()
@@ -609,6 +659,7 @@ const drawCanvas = async () => {
   ctx.lineWidth = w / 500
   ctx.beginPath()
   wobbleDiv = 100
+  wobbleMod = w / 500
 
   for (let i = 0; i < features.wobblePoints.backLine.top.length - 1; i++) {
     const pBackBottom = {
@@ -627,9 +678,9 @@ const drawCanvas = async () => {
       x: skyLightLeftPoint.x + features.wobblePoints.skyLightLeft.top[i].x * w / wobbleDiv,
       y: skyLightLeftPoint.y + features.wobblePoints.skyLightLeft.top[i].y * w / wobbleDiv - h * skylightHeight
     }
-    drawLine(pBackTop, pBackBottom, ctx)
-    drawLine(pBackTop, pRightTop, ctx)
-    drawLine(pBackTop, pLeftTop, ctx)
+    drawLine(pBackTop, pBackBottom, ctx, 'vertical', wobbleMod, defaultSegments / 10)
+    drawLine(pBackTop, pRightTop, ctx, 'horizontal', wobbleMod, defaultSegments / 2)
+    drawLine(pBackTop, pLeftTop, ctx, 'horizontal', wobbleMod, defaultSegments / 2)
   }
   ctx.stroke()
 
@@ -657,50 +708,13 @@ const drawCanvas = async () => {
       x: skyLightLeftPoint.x + features.wobblePoints.skyLightLeft.bottom[i].x * w / wobbleDiv,
       y: skyLightLeftPoint.y + features.wobblePoints.skyLightLeft.bottom[i].y * w / wobbleDiv
     }
-    drawLine(pSLBack, pSLRight, ctx)
-    drawLine(pSLRight, pSLFront, ctx)
-    drawLine(pSLFront, pSLLeft, ctx)
-    drawLine(pSLLeft, pSLBack, ctx)
+    drawLine(pSLBack, pSLRight, ctx, 'horizontal', wobbleMod, defaultSegments / 2)
+    drawLine(pSLRight, pSLFront, ctx, 'horizontal', wobbleMod, defaultSegments / 2)
+    drawLine(pSLFront, pSLLeft, ctx, 'horizontal', wobbleMod, defaultSegments / 2)
+    drawLine(pSLLeft, pSLBack, ctx, 'horizontal', wobbleMod, defaultSegments / 2)
   }
   ctx.stroke()
 
-  /*
-  const rightLineTop = [topPoint, rightWallTopPoint]
-  const rightLineBottom = [bottomPoint, rightWallBottomPoint]
-  const leftLineTop = [topPoint, leftWallTopPoint]
-  const leftLineBottom = [bottomPoint, leftWallBottomPoint]
-
-  // Draw a grid of points along the cleaning every 10% of the way
-  const dist = 14
-  for (let r = 0; r < dist; r++) {
-    for (let l = 0; l < dist; l++) {
-      const CeilingPoint = calculateFloorCeilingPoint(rightLineTop, leftLineTop, rightVanishingPoint, leftVanishingPoint, r / 10, l / 10, w, h)
-      const floorPoint = calculateFloorCeilingPoint(rightLineBottom, leftLineBottom, rightVanishingPoint, leftVanishingPoint, r / 10, l / 10, w, h)
-      ctx.fillStyle = 'hsl(0, 0%, 0%)'
-      ctx.beginPath()
-      ctx.arc(CeilingPoint.x, CeilingPoint.y, w * Math.sqrt(r * l / 500000), 0, 2 * Math.PI)
-      ctx.fill()
-      ctx.beginPath()
-      ctx.arc(floorPoint.x, floorPoint.y, w * Math.sqrt(r * l / 500000), 0, 2 * Math.PI)
-      ctx.fill()
-    }
-  }
-
-  for (let r = 0; r < dist; r++) {
-    const startPointRight = calculateFloorCeilingPoint(rightLineTop, leftLineTop, rightVanishingPoint, leftVanishingPoint, r / 10, 0, w, h)
-    const endPointRight = calculateFloorCeilingPoint(rightLineTop, leftLineTop, rightVanishingPoint, leftVanishingPoint, r / 10, dist / 10, w, h)
-    const startPointLeft = calculateFloorCeilingPoint(rightLineTop, leftLineTop, rightVanishingPoint, leftVanishingPoint, 0, r / 10, w, h)
-    const endPointLeft = calculateFloorCeilingPoint(rightLineTop, leftLineTop, rightVanishingPoint, leftVanishingPoint, dist / 10, r / 10, w, h)
-    ctx.strokeStyle = 'hsl(0, 0%, 50%)'
-    ctx.lineWidth = w / 500
-    ctx.beginPath()
-    ctx.moveTo(startPointRight.x, startPointRight.y)
-    ctx.lineTo(endPointRight.x, endPointRight.y)
-    ctx.moveTo(startPointLeft.x, startPointLeft.y)
-    ctx.lineTo(endPointLeft.x, endPointLeft.y)
-    ctx.stroke()
-  }
-  */
   // restore the state
   ctx.restore()
 
