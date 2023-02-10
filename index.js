@@ -26,6 +26,7 @@ let drawPaper = true
 const features = {}
 let resizeTmr = null
 let mouseEventsSet = false
+const dumpOutputs = false
 
 window.$fxhashFeatures = {}
 
@@ -130,7 +131,7 @@ areas.forEach(area => {
     bottom: []
   }
 })
-for (let i = 0; i < 4; i++) {
+for (let i = 0; i < 6; i++) {
   areas.forEach(area => {
     features.wobblePoints[area].top.push({
       x: fxrand() - 0.5,
@@ -286,8 +287,12 @@ const calculateFloorCeilingPoint = (backRightLine, backLeftLine, rightVanishingP
   return thisPoint
 }
 
-const drawLine = (p1, p2, ctx) => {
-  ctx.moveTo(p1.x, p1.y)
+const drawLine = (p1, p2, ctx, startWithMove = true) => {
+  if (startWithMove) {
+    ctx.moveTo(p1.x, p1.y)
+  } else {
+    ctx.lineTo(p1.x, p1.y)
+  }
   ctx.lineTo(p2.x, p2.y)
 }
 
@@ -390,6 +395,10 @@ const drawCanvas = async () => {
   const skyLightLeftPoint = calculateFloorCeilingPoint([topPoint, rightWallTopPoint], [topPoint, leftWallTopPoint], rightVanishingPoint, leftVanishingPoint, skyLightPercent1, skyLightPercent2, w, h)
   const skyLightRightPoint = calculateFloorCeilingPoint([topPoint, rightWallTopPoint], [topPoint, leftWallTopPoint], rightVanishingPoint, leftVanishingPoint, skyLightPercent2, skyLightPercent1, w, h)
 
+  const linesFrom = 0
+  const linesTo = Math.floor(features.wobblePoints.backLine.top.length / 2)
+  const fillsFrom = Math.floor(features.wobblePoints.backLine.top.length / 2)
+  const fillsTo = features.wobblePoints.backLine.top.length
   // ##########################################################################
   //
   // Now fill in the areas
@@ -479,6 +488,66 @@ const drawCanvas = async () => {
   // restore
   ctx.restore()
 
+  // Now we want to loop through the walls, adding the wobble and filling in the walls in colour
+  let wobbleDiv = 25
+  for (let i = fillsFrom; i < fillsTo; i++) {
+    const pBackTop = {
+      x: topPoint.x + features.wobblePoints.backLine.top[i].x * w / wobbleDiv,
+      y: topPoint.y + features.wobblePoints.backLine.top[i].y * w / wobbleDiv
+    }
+    const pBackBottom = {
+      x: bottomPoint.x + features.wobblePoints.backLine.bottom[i].x * w / wobbleDiv,
+      y: bottomPoint.y + features.wobblePoints.backLine.bottom[i].y * w / wobbleDiv
+    }
+    const pRightTop = {
+      x: rightWallTopPoint.x + features.wobblePoints.rightSide.top[i].x * w / wobbleDiv,
+      y: rightWallTopPoint.y + features.wobblePoints.rightSide.top[i].y * w / wobbleDiv
+    }
+    const pRightBottom = {
+      x: rightWallBottomPoint.x + features.wobblePoints.rightSide.bottom[i].x * w / wobbleDiv,
+      y: rightWallBottomPoint.y + features.wobblePoints.rightSide.bottom[i].y * w / wobbleDiv
+    }
+    const pLeftTop = {
+      x: leftWallTopPoint.x + features.wobblePoints.leftSide.top[i].x * w / wobbleDiv,
+      y: leftWallTopPoint.y + features.wobblePoints.leftSide.top[i].y * w / wobbleDiv
+    }
+    const pLeftBottom = {
+      x: leftWallBottomPoint.x + features.wobblePoints.leftSide.bottom[i].x * w / wobbleDiv,
+      y: leftWallBottomPoint.y + features.wobblePoints.leftSide.bottom[i].y * w / wobbleDiv
+    }
+
+    // Do the right wall
+    ctx.fillStyle = `hsl(${rightWallColour.h}, ${rightWallColour.s}%, ${rightWallColour.l}%, 0.5)`
+    ctx.beginPath()
+    ctx.moveTo(pBackTop.x, pBackTop.y)
+    drawLine(pBackTop, pRightTop, ctx, false)
+    drawLine(pRightTop, pRightBottom, ctx, false)
+    drawLine(pRightBottom, pBackBottom, ctx, false)
+    drawLine(pBackBottom, pBackTop, ctx, false)
+    ctx.fill()
+
+    // Do the left wall
+    ctx.fillStyle = `hsl(${leftWallColour.h}, ${leftWallColour.s}%, ${leftWallColour.l}%, 0.5)`
+    ctx.beginPath()
+    ctx.moveTo(pBackTop.x, pBackTop.y)
+    drawLine(pBackTop, pLeftTop, ctx, false)
+    drawLine(pLeftTop, pLeftBottom, ctx, false)
+    drawLine(pLeftBottom, pBackBottom, ctx, false)
+    drawLine(pBackBottom, pBackTop, ctx, false)
+    ctx.fill()
+
+    // Do the floor
+    ctx.fillStyle = `hsl(${floorColour.h}, ${floorColour.s}%, ${floorColour.l}%, 0.5)`
+    ctx.beginPath()
+    ctx.moveTo(pBackBottom.x, pBackBottom.y)
+    drawLine(pRightBottom, pRightBottom, ctx, false)
+    ctx.lineTo(pRightBottom.x, pRightBottom.y + h * 5)
+    ctx.lineTo(pLeftBottom.x, pLeftBottom.y + h * 5)
+    ctx.lineTo(pLeftBottom.x, pLeftBottom.y)
+    drawLine(pLeftBottom, pBackBottom, ctx, false)
+    ctx.fill()
+  }
+
   // ##########################################################################
   //
   // Now draw the lines
@@ -490,8 +559,8 @@ const drawCanvas = async () => {
   ctx.beginPath()
 
   // Loop through the wobble points and draw a line between them
-  let wobbleDiv = 50
-  for (let i = 0; i < features.wobblePoints.backLine.top.length - 1; i++) {
+  wobbleDiv = 50
+  for (let i = linesFrom; i < linesTo; i++) {
     // Back wall
     const pBackTop = {
       x: topPoint.x + features.wobblePoints.backLine.top[i].x * w / wobbleDiv,
@@ -567,8 +636,8 @@ const drawCanvas = async () => {
   ctx.restore()
 
   // Draw around the edge of the sky light
-  ctx.strokeStyle = 'hsl(0, 0%, 66%)'
-  ctx.lineWidth = w / 500
+  ctx.strokeStyle = 'hsla(0, 0%, 66%, 0.5)'
+  ctx.lineWidth = w / 1000
   ctx.beginPath()
 
   for (let i = 0; i < features.wobblePoints.backLine.top.length - 1; i++) {
@@ -635,8 +704,22 @@ const drawCanvas = async () => {
   // restore the state
   ctx.restore()
 
+  // Draw a black outline around the canvas
+  ctx.strokeStyle = 'hsl(0, 0%, 0%)'
+  ctx.lineWidth = w / 200
+  ctx.beginPath()
+  ctx.moveTo(0, 0)
+  ctx.lineTo(w, 0)
+  ctx.lineTo(w, h)
+  ctx.lineTo(0, h)
+  ctx.lineTo(0, 0)
+  ctx.stroke()
   // draw again on the next window animation frame
-  window.requestAnimationFrame(drawCanvas)
+  if (dumpOutputs) {
+    autoDownloadCanvas()
+  } else {
+    window.requestAnimationFrame(drawCanvas)
+  }
 }
 
 const autoDownloadCanvas = async (showHash = false) => {
@@ -651,6 +734,8 @@ const autoDownloadCanvas = async (showHash = false) => {
   }))
   element.click()
   document.body.removeChild(element)
+
+  if (dumpOutputs) window.location.reload()
 }
 
 //  KEY PRESSED OF DOOM
