@@ -958,3 +958,4 @@ const palettes = [{
     name: 'Too Cool For School'
   }]
 }]
+exports.default = palettes

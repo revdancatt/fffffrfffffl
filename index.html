@@ -7,7 +7,7 @@
     //---- do not edit the following code (you can indent as you wish)
     let alphabet = "123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ"
     var fxhash = "oo" + Array(49).fill(0).map(_ => alphabet[(Math.random() * alphabet.length) | 0]).join('')
-    // fxhash = 'ooMo5MaXPpp9UHAz54k1xkGhY3TCVqTrjER4edY6PvYytW8s5E8'
+    // fxhash = 'oomuKCHXuHi7WcXqczZbbfttSqAAUPunvTiht4qS6tEyCZxygz6'
     const urlHash = new URLSearchParams(window.location.search).get('fxhash')
     if (urlHash) fxhash = urlHash
     let b58dec = str => [...str].reduce((p, c) => p * alphabet.length + alphabet.indexOf(c) | 0, 0)
@@ -45,17 +45,12 @@
 
 <body>
   <canvas id="target"></canvas>
-  <script src="./noise.js"></script>
-  <script src="./paper.js"></script>
-  <script src="./palettes.js"></script>
   <script src="./index.js?v=0.0.4"></script>
   <script>
     let preloadImagesTmr = null
     let paper1Loaded = null
     document.addEventListener('DOMContentLoaded', (event) => {
       //  stupid hack to make sure we have access to all the images
-      loadPaper1()
-      preloadImages()
       preloadImagesTmr = setInterval(() => {
         preloadImages()
       }, 333)
