@@ -647,8 +647,20 @@ const makeFeatures = () => {
 
   // Pick a random palette
   features.palette = palettes[Math.floor(fxrand() * palettes.length)]
-  features.backgroundColour = features.palette.background
-  if (fxrand() < 0.7) features.backgroundColour = '#333'
+  features.backgroundColour = '#333'
+  if (fxrand() < 0.333) {
+    features.backgroundColour = features.palette.background
+    // Sometimes we'll swap the background colour for one of the other colours in the palette
+    if (fxrand() < 0.25) {
+      const oldBackground = features.backgroundColour
+      // randomly remove a colour from the palette and store is in newBackground
+      const newBackground = features.palette.tiles.splice(Math.floor(fxrand() * features.palette.tiles.length), 1)[0]
+      // Add the old background colour back into the palette
+      features.palette.tiles.push(oldBackground)
+      features.backgroundColour = newBackground
+    }
+  }
+
 
   features.maps = []
   // Loop through the floor sizes and generate a map for each
