@@ -7,7 +7,7 @@
     //---- do not edit the following code (you can indent as you wish)
     let alphabet = "123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ"
     var fxhash = "oo" + Array(49).fill(0).map(_ => alphabet[(Math.random() * alphabet.length) | 0]).join('')
-    // fxhash = 'oomuKCHXuHi7WcXqczZbbfttSqAAUPunvTiht4qS6tEyCZxygz6'
+    // fxhash = 'ooWXakorLdDqfnWfUDkX3qeKruf2LC7z9ZHWmjRGVqgNoK7aRTe'
     const urlHash = new URLSearchParams(window.location.search).get('fxhash')
     if (urlHash) fxhash = urlHash
     let b58dec = str => [...str].reduce((p, c) => p * alphabet.length + alphabet.indexOf(c) | 0, 0)
@@ -45,6 +45,7 @@
 
 <body>
   <canvas id="target"></canvas>
+  <script src="./noise.js"></script>
   <script src="./index.js?v=0.0.4"></script>
   <script>
     let preloadImagesTmr = null
