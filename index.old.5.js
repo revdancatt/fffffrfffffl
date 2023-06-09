@@ -1,4 +1,4 @@
-/* global R data preloadImagesTmr Image hash thisSize maxImage */
+/* global preloadImagesTmr Image hash */
 
 //
 //  fxhash - fffffrfffffl
@@ -30,12 +30,47 @@ const dumpOutputs = false
 let fontCtx = null
 let fontMap = null
 const densityMap = {}
-let colourMaps = []
+let maxDensity = 0
+let imageLoadingSetup = false
+const sourceImagesLoaded = []
+const textures = []
+const colourMaps = []
 let startTime = null
 let frames = 0
 let lastFrameTime = 0
 
 const fps = 1000 / 24
+
+class Rand {
+  constructor () {
+    // PRNG from Piter
+    const S = Uint32Array.of(9, 7, 5, 3)
+    // eslint-disable-next-line no-return-assign
+    this.prng = (a = 1) => a * (a = S[3], S[3] = S[2], S[2] = S[1], a ^= a << 11, S[0] ^= a ^ a >>> 8 ^ (S[1] = S[0]) >>> 19, S[0] / 2 ** 32);
+    [...hash + 'ThxPiter'].map(c => this.prng(S[3] ^= c.charCodeAt() * 23205))
+  }
+
+  r_d () { // random between 0 and 1
+    return this.prng()
+  }
+
+  r_n (a, b) { // random float between a and b
+    return a + (b - a) * this.r_d()
+  }
+
+  r_i (a, b) { // random int between a and b
+    return ~~(this.r_n(a, b + 1))
+  }
+
+  r_b (p) { // random boolean with probability of p
+    return this.r_d() < p
+  }
+
+  r_c (list) { // random choice from list
+    return list[this.r_i(0, list.length - 1)]
+  }
+}
+const R = new Rand()
 
 function hexToRgb (hex) {
   let r = 0; let g = 0; let b = 0
@@ -53,7 +88,48 @@ function hexToRgb (hex) {
   b /= 255
   return { r, g, b }
 }
+// A function to convert a hex colour to a hsl colour
+function rgbToHsl (rgb) {
+  const { r, g, b } = rgb
+  // Then to HSL
+  const cmin = Math.min(r, g, b)
+  const cmax = Math.max(r, g, b)
+  const delta = cmax - cmin
+  let h = 0
+  let s = 0
+  let l = 0
 
+  if (delta === 0) { h = 0 } else if (cmax === r) { h = ((g - b) / delta) % 6 } else if (cmax === g) { h = (b - r) / delta + 2 } else { h = (r - g) / delta + 4 }
+
+  h = Math.round(h * 60)
+
+  if (h < 0) { h += 360 }
+
+  l = (cmax + cmin) / 2
+  s = delta === 0 ? 0 : delta / (1 - Math.abs(2 * l - 1))
+  s = +(s * 100).toFixed(1)
+  l = +(l * 100).toFixed(1)
+
+  return { h, s, l }
+}
+
+// We need a hsl to rgb function
+function hslToRgb (hsl) {
+  let { h, s, l } = hsl
+  s /= 100
+  l /= 100
+  const k = n => (n + h / 30) % 12
+  const a = s * Math.min(l, 1 - l)
+  const f = n =>
+    l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)))
+  return {
+    r: Math.floor(255 * f(0)),
+    g: Math.floor(255 * f(8)),
+    b: Math.floor(255 * f(4))
+  }
+}
+
+const backgrounds = ['#e8b400', '#ed600b', '#f69a99', '#9d7ad2', '#28b2ca', '#24bc94']
 const microColours = ['#000000', '#FF0000', '#00FF00', '#FFFF00', '#0000FF', '#FF00FF', '#00FFFF', '#FFFFFF']
 // convert the microColours in to rgb in a new array
 const microColoursRgb = microColours.map(hex => {
@@ -70,10 +146,11 @@ const qfont =
 
 //  Work out what all our features are
 const makeFeatures = () => {
-  features.width = thisSize
+  features.width = 24 * Math.floor(R.prng() * 2 + 1)
   features.height = Math.floor(features.width * ratio)
 
   features.sourceImages = []
+  const maxImage = 74
   const imagesToUse = Math.floor(R.prng() * 3) + 3
   while (features.sourceImages.length < imagesToUse) {
     const image = `${Math.floor(R.prng() * maxImage)}`.padStart(4, '0')
@@ -130,8 +207,6 @@ const makeFeatures = () => {
       features.yPhase *= R.prng() * 2 + 1
     }
   }
-
-  features.blackAndWhite = R.prng() < 0.04
 }
 
 //  Call the above make features, so we'll have the window.$fxhashFeatures available
@@ -205,7 +280,6 @@ const writeLetter = (ctx, letter, position, colour) => {
     width: position.width / 8,
     height: position.height / 8
   }
-  // console.log(colour)
   for (let y = 0; y < 8; y++) {
     for (let x = 0; x < 8; x++) {
       if (char[y][x] === 1) {
@@ -270,16 +344,6 @@ const drawCanvas = async () => {
       if (R.prng() < 0.5 * newRGBColourAdjuster) colour = thisColourMap[index].newRGB
       if (R.prng() < 0.4 * closestRGBColourAdjuster) colour = thisColourMap[index].closestRGB
       if (R.prng() < 0.3 * microColoursRgbAdjuster) colour = microColoursRgb[Math.floor(R.prng() * (microColoursRgb.length - 2)) + 1]
-
-      // if we are black and white then we need to do some extra stuff
-      if (features.blackAndWhite) {
-        const grey = Math.floor((colour.r + colour.g + colour.b) / 3)
-        colour = {
-          r: grey,
-          g: grey,
-          b: grey
-        }
-      }
 
       const finalColour = `rgb(${colour.r},${colour.g},${colour.b})`
       const density = thisColourMap[index].density
@@ -438,19 +502,111 @@ const preloadImages = () => {
           densityMap[i] = [...new Set(densityMap[i])]
         }
       }
+      // Grab the highest key value from the densityMap
+      const densityMapKeys = Object.keys(densityMap)
+      maxDensity = parseInt(densityMapKeys[densityMapKeys.length - 1], 10)
     }
     fontImage.src = `data:image/png;base64,${qfont}`
   }
 
-  //  If paper1 has loaded and we haven't draw anything yet, then kick it all off
-  if (!drawn && fontMapLoaded) {
-    // Loop through each data item
-    for (let i = 0; i < data.length; i++) {
-      Object.entries(data[i]).forEach(([key, value]) => {
-        data[i][key].updateOnFrame = Math.floor(R.prng() * 4 + 1) * 15
-      })
+  if (!imageLoadingSetup) {
+    for (let i = 0; i < features.sourceImages.length; i++) {
+      sourceImagesLoaded[i] = false
+      textures[i] = new Image()
+      textures[i].onload = () => {
+        // eslint-disable-next-line no-eval
+        eval(`sourceImagesLoaded[${i}] = true`)
+      }
+      textures[i].src = `./faces/${features.sourceImages[i]}.jpg`
     }
-    colourMaps = data
+  }
+  imageLoadingSetup = true
+
+  let allSourceImagesLoaded = true
+  // Check to see if all the images have loaded
+  sourceImagesLoaded.forEach((loaded) => {
+    if (!loaded) allSourceImagesLoaded = false
+  })
+
+  //  If paper1 has loaded and we haven't draw anything yet, then kick it all off
+  if (!drawn && fontMapLoaded && allSourceImagesLoaded) {
+    for (let image = 0; image < features.sourceImages.length; image++) {
+      // Now that we have textures[0] I want to posterise it down to 8 colours that match the microColours
+      const buffer = document.createElement('canvas')
+      buffer.width = features.width
+      buffer.height = features.height
+      const bufferCtx = buffer.getContext('2d')
+      bufferCtx.drawImage(textures[image], 0, 0, features.width, features.height)
+
+      const imageData = bufferCtx.getImageData(0, 0, features.width, features.height)
+      const data = imageData.data
+      // convert microColours into hsl
+      const microHsl = []
+      for (let i = 0; i < microColours.length; i++) {
+        const hsl = rgbToHsl(hexToRgb(microColours[i]))
+        microHsl.push(hsl)
+      }
+      colourMaps[image] = {}
+      let x = 0
+      let y = 0
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i]
+        const g = data[i + 1]
+        const b = data[i + 2]
+        // convert to hsl
+        const hsl = rgbToHsl({ r: r / 255, g: g / 255, b: b / 255 })
+        // Work out which microColour this is closest to using only the hue, remember that hue is a circle
+        // and we wrap around at 100
+        let closest = 0
+        let closestDistance = 1000
+        for (let j = 0; j < microHsl.length; j++) {
+          const distance = Math.abs(microHsl[j].h - hsl.h) + Math.abs(microHsl[j].s - hsl.s) + Math.abs(microHsl[j].l - hsl.l)
+          if (distance < closestDistance) {
+            closestDistance = distance
+            closest = j
+          }
+        }
+        // Now we have the closest microColour, we can set the pixel to that colour
+        const colour = rgbToHsl(hexToRgb(microColours[closest]))
+        const closestRgb = hexToRgb(microColours[closest])
+        closestRgb.r = Math.floor(closestRgb.r * 255)
+        closestRgb.g = Math.floor(closestRgb.g * 255)
+        closestRgb.b = Math.floor(closestRgb.b * 255)
+        const newRgb = hslToRgb({ h: colour.h, s: 100, l: hsl.l })
+        const index = `${x},${y}`
+        const luminance = (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
+        const thisDensity = Math.floor(luminance / 255 * (maxDensity + 1))
+        colourMaps[image][index] = {
+          originalRGB: { r, g, b },
+          originalHSL: hsl,
+          closestRGB: closestRgb,
+          closestHSL: colour,
+          newRGB: newRgb,
+          newHSL: { h: colour.h, s: 100, l: hsl.l },
+          density: thisDensity,
+          size: 1,
+          updateOnFrame: Math.floor(R.prng() * 4 + 1) * 15,
+          frame: 0,
+          lastLetter: null,
+          lastColour: null
+        }
+        data[i] = newRgb.r
+        data[i + 1] = newRgb.g
+        data[i + 2] = newRgb.b
+        x++
+        if (x >= features.width) {
+          x = 0
+          y++
+        }
+      }
+      // Attach the new data to the image
+      bufferCtx.putImageData(imageData, 0, 0)
+      // Now we can set textures[0] to the new image
+      textures[image] = buffer
+    }
+    // attach the textures[0] to the body
+    // document.body.appendChild(textures[0])
+
     clearInterval(preloadImagesTmr)
     init()
   }

@@ -3,41 +3,66 @@
 
 <head>
   <title>fffffrfffffl</title>
-  <script id="fxhash-snippet">
-    //---- do not edit the following code (you can indent as you wish)
-    let alphabet = "123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ"
-    var fxhash = "oo" + Array(49).fill(0).map(_ => alphabet[(Math.random() * alphabet.length) | 0]).join('')
-    // fxhash = 'ooWXakorLdDqfnWfUDkX3qeKruf2LC7z9ZHWmjRGVqgNoK7aRTe'
-    const urlHash = new URLSearchParams(window.location.search).get('fxhash')
-    if (urlHash) fxhash = urlHash
-    let b58dec = str => [...str].reduce((p, c) => p * alphabet.length + alphabet.indexOf(c) | 0, 0)
-    let fxhashTrunc = fxhash.slice(2)
-    let regex = new RegExp(".{" + ((fxhash.length / 4) | 0) + "}", 'g')
-    let hashes = fxhashTrunc.match(regex).map(h => b58dec(h))
-    let sfc32 = (a, b, c, d) => {
-      return () => {
-        a |= 0;
-        b |= 0;
-        c |= 0;
-        d |= 0
-        var t = (a + b | 0) + d | 0
-        d = d + 1 | 0
-        a = b ^ b >>> 9
-        b = c + (c << 3) | 0
-        c = c << 21 | c >>> 11
-        c = c + t | 0
-        return (t >>> 0) / 4294967296
+  <script>
+    // DATA from FERAL FILE
+    const urlSearchParams = new URLSearchParams(window.location.search)
+    const params = Object.fromEntries(urlSearchParams.entries())
+    const editionNumber = params.edition_number
+    let hash = params.token_id_hash
+    if (Object.keys(params).length === 0) {
+      // Generates a pure random hash from Nadieh
+      hash = '0x'
+      for (let i = 64; i > 0; --i) hash += '0123456789abcdef'[~~(Math.random() * 16)]
+    }
+    class Rand {
+      constructor() {
+        // PRNG from Piter
+        const S = Uint32Array.of(9, 7, 5, 3)
+        // eslint-disable-next-line no-return-assign
+        this.prng = (a = 1) => a * (a = S[3], S[3] = S[2], S[2] = S[1], a ^= a << 11, S[0] ^= a ^ a >>> 8 ^ (S[1] = S[0]) >>> 19, S[0] / 2 ** 32);
+        [...hash + 'ThxPiter'].map(c => this.prng(S[3] ^= c.charCodeAt() * 23205))
+      }
+
+      r_d() { // random between 0 and 1
+        return this.prng()
+      }
+
+      r_n(a, b) { // random float between a and b
+        return a + (b - a) * this.r_d()
+      }
+
+      r_i(a, b) { // random int between a and b
+        return ~~(this.r_n(a, b + 1))
+      }
+
+      r_b(p) { // random boolean with probability of p
+        return this.r_d() < p
+      }
+
+      r_c(list) { // random choice from list
+        return list[this.r_i(0, list.length - 1)]
       }
     }
-    var fxrand = sfc32(...hashes)
-    // true if preview mode active, false otherwise
-    // you can append preview=1 to the URL to simulate preview active
-    var isFxpreview = new URLSearchParams(window.location.search).get('preview') === "1"
-    // call this method to trigger the preview
-    function fxpreview() {
-      console.log("fxhash: TRIGGER PREVIEW")
+    const R = new Rand()
+  </script>
+  <script>
+    // We need to pick a size, how many sets of data to load in, and which ones to load
+    const data = []
+    const loadedIds = []
+    const thisSize = 24 * Math.floor(R.prng() * 2 + 1)
+    const maxImage = 75
+    const datasToUse = Math.floor(R.prng() * 3) + 3
+    // Loop through the datas and load them in
+    for (let i = 0; i < datasToUse; i++) {
+      const thisId = `${Math.floor(R.prng() * maxImage).toString().padStart(4, '0')}_${thisSize}.js`
+      // Made sure we don't load in the same data twice
+      if (!loadedIds.includes(thisId)) {
+        loadedIds.push(thisId)
+        const script = document.createElement('script')
+        script.src = `./data/${thisId}`
+        document.head.appendChild(script)
+      }
     }
-    //---- /do not edit the following code
   </script>
 
   <!-- if you need to import js scripts do it here -->
@@ -45,11 +70,10 @@
 
 <body>
   <canvas id="target"></canvas>
-  <script src="./noise.js"></script>
-  <script src="./index.js?v=0.0.4"></script>
+  <script src="./noise.js?v=0.0.6"></script>
+  <script src="./index.js?v=0.0.6"></script>
   <script>
     let preloadImagesTmr = null
-    let paper1Loaded = null
     document.addEventListener('DOMContentLoaded', (event) => {
       //  stupid hack to make sure we have access to all the images
       preloadImagesTmr = setInterval(() => {
