@@ -49,17 +49,18 @@
     // We need to pick a size, how many sets of data to load in, and which ones to load
     const data = []
     const loadedIds = []
-    const thisSize = 24 * Math.floor(R.prng() * 2 + 1)
-    const maxImage = 75
+    let thisSize = 24 * 2
+    if (R.prng() < 0.05) thisSize = 24 * 3
+    const maxImage = 214
     const datasToUse = Math.floor(R.prng() * 3) + 3
     // Loop through the datas and load them in
-    for (let i = 0; i < datasToUse; i++) {
+    while (loadedIds.length < datasToUse) {
       const thisId = `${Math.floor(R.prng() * maxImage).toString().padStart(4, '0')}_${thisSize}.js`
       // Made sure we don't load in the same data twice
       if (!loadedIds.includes(thisId)) {
         loadedIds.push(thisId)
         const script = document.createElement('script')
-        script.src = `./data/${thisId}`
+        script.src = `./data/${thisId}?v=0.1.5`
         document.head.appendChild(script)
       }
     }
@@ -70,8 +71,9 @@
 
 <body>
   <canvas id="target"></canvas>
-  <script src="./noise.js?v=0.0.6"></script>
-  <script src="./index.js?v=0.0.6"></script>
+  <script src="./makeStory.js?v=0.1.5"></script>
+  <script src="./noise.js?v=0.1.5"></script>
+  <script src="./index.js?v=0.1.5"></script>
   <script>
     let preloadImagesTmr = null
     document.addEventListener('DOMContentLoaded', (event) => {

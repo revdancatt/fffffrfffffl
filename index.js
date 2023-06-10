@@ -1,4 +1,4 @@
-/* global R data preloadImagesTmr Image hash thisSize maxImage */
+/* global R data preloadImagesTmr Image hash thisSize maxImage datasToUse noise story */
 
 //
 //  fxhash - fffffrfffffl
@@ -29,11 +29,15 @@ let fontLoading = false
 const dumpOutputs = false
 let fontCtx = null
 let fontMap = null
+let maxDensity = 0
 const densityMap = {}
-let colourMaps = []
+const colourMaps = []
+const keepMaps = []
 let startTime = null
 let frames = 0
 let lastFrameTime = 0
+let failCounter = 0
+let imagesLoaded = 0
 
 const fps = 1000 / 24
 
@@ -52,6 +56,46 @@ function hexToRgb (hex) {
   g /= 255
   b /= 255
   return { r, g, b }
+}
+// A function to convert a hex colour to a hsl colour
+function rgbToHsl (rgb) {
+  const { r, g, b } = rgb
+  // Then to HSL
+  const cmin = Math.min(r, g, b)
+  const cmax = Math.max(r, g, b)
+  const delta = cmax - cmin
+  let h = 0
+  let s = 0
+  let l = 0
+
+  if (delta === 0) { h = 0 } else if (cmax === r) { h = ((g - b) / delta) % 6 } else if (cmax === g) { h = (b - r) / delta + 2 } else { h = (r - g) / delta + 4 }
+
+  h = Math.round(h * 60)
+
+  if (h < 0) { h += 360 }
+
+  l = (cmax + cmin) / 2
+  s = delta === 0 ? 0 : delta / (1 - Math.abs(2 * l - 1))
+  s = +(s * 100).toFixed(1)
+  l = +(l * 100).toFixed(1)
+
+  return { h, s, l }
+}
+
+// We need a hsl to rgb function
+function hslToRgb (hsl) {
+  let { h, s, l } = hsl
+  s /= 100
+  l /= 100
+  const k = n => (n + h / 30) % 12
+  const a = s * Math.min(l, 1 - l)
+  const f = n =>
+    l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)))
+  return {
+    r: Math.floor(255 * f(0)),
+    g: Math.floor(255 * f(8)),
+    b: Math.floor(255 * f(4))
+  }
 }
 
 const microColours = ['#000000', '#FF0000', '#00FF00', '#FFFF00', '#0000FF', '#FF00FF', '#00FFFF', '#FFFFFF']
@@ -132,6 +176,27 @@ const makeFeatures = () => {
   }
 
   features.blackAndWhite = R.prng() < 0.04
+
+  // Set all the text stuff here
+  features.killSceenShowOffset = R.prng() * 10000 + 10000
+  features.killSceenShowMod = R.prng() * 1000 + 500
+  features.killScreenCurrentMode = false
+  features.killSceenCurrentPosition = 0
+  features.killScreenChance = 0.1
+
+  features.gotoPhase = R.prng() * 4000 + 1000
+  features.gogoOffset = R.prng() * 4000 + 1000
+
+  features.story1 = story[0]
+  features.story2 = story[1]
+  features.story3 = story[2]
+  features.storyPointer = 3
+  features.storyTick = 0
+  features.oneThirdSize = Math.floor(features.width * features.height / 3)
+  features.story1Position = Math.floor(R.prng() * (features.oneThirdSize - features.story1.length))
+  features.story2Position = Math.floor(R.prng() * (features.oneThirdSize - features.story2.length)) + features.oneThirdSize
+  features.story3Position = Math.floor(R.prng() * (features.oneThirdSize - features.story3.length)) + (features.oneThirdSize * 2)
+  features.storyToChange = 1
 }
 
 //  Call the above make features, so we'll have the window.$fxhashFeatures available
@@ -252,10 +317,46 @@ const drawCanvas = async () => {
   const closestRGBColourAdjuster = (Math.sin(msDiff / (987 * colAdjustSpeed)) + 1) / 2 * 0.8 + 0.1
   const microColoursRgbAdjuster = ((Math.sin(msDiff / (1000 * colAdjustSpeed)) + 1) / 2) * 0.8 + 0.1
 
+  // Make an array filled with the value null, that's the size of the features.width * features.height
+  const specialCharacters = Array(features.width * features.height).fill(null)
+
+  // Put the GOTO 10 in
+  const gotoStr = '> GOTO 10'
+  if (Math.sin((msDiff + features.gogoOffset) / features.gotoPhase) > 0.33) {
+    for (let y = 0; y < features.height; y++) {
+      if (Math.sin((msDiff / 300) + (y / features.height * 4000)) > 0.95) {
+        for (let c = 0; c < gotoStr.length; c++) {
+          specialCharacters[(y * features.width) + c] = gotoStr[c]
+        }
+      }
+    }
+  }
+
+  const killScreen = noise.perlin2(features.killSceenShowOffset, msDiff / features.killSceenShowMod) > 0.1
+  const killScreenText = '256 KILL SCREEN'
+  if (features.killScreenCurrentMode !== killScreen) {
+    features.killScreenCurrentMode = killScreen
+    features.killSceenCurrentPosition = Math.floor(R.prng() * (features.height * features.width - killScreenText.length))
+  }
+
+  if (features.killScreenCurrentMode === true) {
+    for (let p = 0; p < killScreenText.length; p++) {
+      specialCharacters[features.killSceenCurrentPosition + p] = killScreenText[p]
+    }
+  }
+  let positionPointer = 0
+
+  // Add in the story
+  for (let p = 0; p < features.story1.length; p++) specialCharacters[features.story1Position + p] = features.story1[p]
+  for (let p = 0; p < features.story2.length; p++) specialCharacters[features.story2Position + p] = features.story2[p]
+  for (let p = 0; p < features.story3.length; p++) specialCharacters[features.story3Position + p] = features.story3[p]
+
   // Now loop through the tiles based on the height and width for y and x
   for (let y = 0; y < features.height; y++) {
     for (let x = 0; x < features.width; x++) {
-      const whichImage = Math.floor(((Math.sin((msDiff + (y * features.yShift)) / features.yPhase) + Math.cos((msDiff + (x * features.xShift)) / features.xPhase)) + 2) / 4 * colourMaps.length)
+      const tweakX = x + Math.floor(noise.perlin3(x / 10, y / 10, msDiff / 1000) * 8)
+      const tweakY = y + Math.floor(noise.perlin3(x / 10, y / 10, msDiff * 0.763 / 1000) * 8)
+      const whichImage = Math.floor(((Math.sin((msDiff + (tweakY * features.yShift)) / features.yPhase) + Math.cos((msDiff + (tweakX * features.xShift)) / features.xPhase)) + 2) / 4 * colourMaps.length)
       const thisColourMap = colourMaps[whichImage]
 
       // Grab the tile position
@@ -266,7 +367,16 @@ const drawCanvas = async () => {
         height: tileHeight
       }
       const index = `${x},${y}`
-      let colour = thisColourMap[index].originalRGB
+      let colour = { r: 0, g: 0, b: 0 }
+      try {
+        colour = thisColourMap[index].originalRGB
+      } catch (e) {
+        console.log('Trouble at colour mill')
+        console.log('Length of colourMaps: ', colourMaps.length)
+        console.log('whichImage: ', whichImage)
+        console.log('thisColourMap...')
+        console.log(thisColourMap)
+      }
       if (R.prng() < 0.5 * newRGBColourAdjuster) colour = thisColourMap[index].newRGB
       if (R.prng() < 0.4 * closestRGBColourAdjuster) colour = thisColourMap[index].closestRGB
       if (R.prng() < 0.3 * microColoursRgbAdjuster) colour = microColoursRgb[Math.floor(R.prng() * (microColoursRgb.length - 2)) + 1]
@@ -281,7 +391,7 @@ const drawCanvas = async () => {
         }
       }
 
-      const finalColour = `rgb(${colour.r},${colour.g},${colour.b})`
+      let finalColour = `rgb(${colour.r},${colour.g},${colour.b})`
       const density = thisColourMap[index].density
       let possibleLetters = densityMap[density]
       // If the density is greater then 0 then add the previous row of letters to the possible letters
@@ -290,23 +400,38 @@ const drawCanvas = async () => {
       if (density < 35) possibleLetters = [...possibleLetters, ...densityMap[density + 1]]
       // remove any duplicates
       possibleLetters = [...new Set(possibleLetters)]
-      const letter = possibleLetters[Math.floor(R.prng() * possibleLetters.length)]
+      let letter = possibleLetters[Math.floor(R.prng() * possibleLetters.length)]
+      // If we are showing the killScreen, set the colour and letter here
+      let fullSizeSpecial = false
+
+      if (specialCharacters[positionPointer]) {
+        finalColour = 'rgb(255, 255, 255)'
+        letter = specialCharacters[positionPointer]
+        fullSizeSpecial = true
+      }
+
       // if we don't have a last letter in this position, then we need to set it
-      if (!thisColourMap[index].lastColour || thisColourMap[index].frame > thisColourMap[index].updateOnFrame) {
+      if (!thisColourMap[index].lastColour || thisColourMap[index].frame > thisColourMap[index].updateOnFrame || specialCharacters[positionPointer]) {
         thisColourMap[index].lastLetter = letter
         thisColourMap[index].lastColour = finalColour
         thisColourMap[index].frame -= thisColourMap[index].updateOnFrame
       }
+
+      if (!fullSizeSpecial) {
+        position.width = Math.floor(position.width * (thisColourMap[index].originalHSL.l + 25) / 100)
+        position.height = Math.floor(position.height * (thisColourMap[index].originalHSL.l + 25) / 100)
+        position.x = Math.floor(position.x - ((position.width - tileWidth) / 2))
+        position.y = Math.floor(position.y - ((position.height - tileHeight) / 2))
+      }
+
       // Write the letter
-      position.width = Math.floor(position.width * (thisColourMap[index].originalHSL.l + 25) / 100)
-      position.height = Math.floor(position.height * (thisColourMap[index].originalHSL.l + 25) / 100)
-      position.x = Math.floor(position.x - ((position.width - tileWidth) / 2))
-      position.y = Math.floor(position.y - ((position.height - tileHeight) / 2))
       writeLetter(ctx, thisColourMap[index].lastLetter, position, thisColourMap[index].lastColour)
 
       for (let i = 0; i < colourMaps.length; i++) {
         colourMaps[i][index].frame += framesAdvanced
       }
+
+      positionPointer++
     }
   }
 
@@ -319,6 +444,32 @@ const drawCanvas = async () => {
       const tempHolder = colourMaps[fromImage][thisIndex]
       colourMaps[fromImage][thisIndex] = colourMaps[toImage][thisIndex]
       colourMaps[toImage][thisIndex] = tempHolder
+    }
+
+    features.storyTick++
+    if (features.storyTick > 2.4 * 12) {
+      // Move the story along
+      if (features.storyToChange === 1) {
+        features.story1 = story[features.storyPointer]
+        features.story1Position = Math.floor(R.prng() * (features.oneThirdSize - features.story1.length))
+      }
+      if (features.storyToChange === 2) {
+        features.story2 = story[features.storyPointer]
+        features.story2Position = Math.floor(R.prng() * (features.oneThirdSize - features.story2.length)) + features.oneThirdSize
+      }
+      if (features.storyToChange === 3) {
+        features.story3 = story[features.storyPointer]
+        features.story3Position = Math.floor(R.prng() * (features.oneThirdSize - features.story3.length)) + (features.oneThirdSize * 2)
+      }
+      features.storyPointer++
+      // If we have gone off the end of the story go back to the start
+      if (features.storyPointer >= story.length) features.storyPointer = 0
+      features.storyTick = 0
+      features.storyToChange++
+      if (features.storyToChange > 3) features.storyToChange = 1
+      features.story1Position += features.width
+      features.story2Position += features.width
+      features.story3Position += features.width
     }
   }
 
@@ -438,20 +589,120 @@ const preloadImages = () => {
           densityMap[i] = [...new Set(densityMap[i])]
         }
       }
+      // Grab the highest key value from the densityMap
+      const densityMapKeys = Object.keys(densityMap)
+      maxDensity = parseInt(densityMapKeys[densityMapKeys.length - 1], 10)
     }
     fontImage.src = `data:image/png;base64,${qfont}`
   }
 
   //  If paper1 has loaded and we haven't draw anything yet, then kick it all off
-  if (!drawn && fontMapLoaded) {
+  console.log(`Loading: ${failCounter} : ${data.length}/${datasToUse} (${fontMapLoaded}))`)
+  if (!drawn && fontMapLoaded && (data.length === datasToUse || failCounter > 1 * 3 * 60 * 20)) {
+    // Create a new canvas element which is the width and height of the image
     // Loop through each data item
+    for (let i = 0; i < data.length; i++) {
+      const canvas = document.createElement('canvas')
+      canvas.width = thisSize
+      canvas.height = thisSize * ratio
+      // Get the context of the canvas
+      const ctx = canvas.getContext('2d')
+      // Now grab the base64 encoded data from the first element of the data array
+      const base64Data = data[i]
+      // This is a png encoded image, now decode it back onto the canvas
+      const image = new Image()
+      // Can we load the image in an async way?
+      image.onload = function () {
+        ctx.drawImage(image, 0, 0)
+        console.log('Loaded image', i)
+
+        const imageData = ctx.getImageData(0, 0, features.width, features.height)
+        const pixelData = imageData.data
+        // convert microColours into hsl
+        const microHsl = []
+        for (let i = 0; i < microColours.length; i++) {
+          const hsl = rgbToHsl(hexToRgb(microColours[i]))
+          microHsl.push(hsl)
+        }
+        const colourMapData = {}
+        let x = 0
+        let y = 0
+        for (let j = 0; j < pixelData.length; j += 4) {
+          const r = pixelData[j]
+          const g = pixelData[j + 1]
+          const b = pixelData[j + 2]
+          // convert to hsl
+          const hsl = rgbToHsl({ r: r / 255, g: g / 255, b: b / 255 })
+          // Work out which microColour this is closest to using only the hue, remember that hue is a circle
+          // and we wrap around at 100
+          let closest = 0
+          let closestDistance = 1000
+          for (let j = 0; j < microHsl.length; j++) {
+            const distance = Math.abs(microHsl[j].h - hsl.h) + Math.abs(microHsl[j].s - hsl.s) + Math.abs(microHsl[j].l - hsl.l)
+            if (distance < closestDistance) {
+              closestDistance = distance
+              closest = j
+            }
+          }
+          // Now we have the closest microColour, we can set the pixel to that colour
+          const colour = rgbToHsl(hexToRgb(microColours[closest]))
+          const closestRgb = hexToRgb(microColours[closest])
+          closestRgb.r = Math.floor(closestRgb.r * 255)
+          closestRgb.g = Math.floor(closestRgb.g * 255)
+          closestRgb.b = Math.floor(closestRgb.b * 255)
+          const newRgb = hslToRgb({ h: colour.h, s: 100, l: hsl.l })
+          const index = `${x},${y}`
+          const luminance = (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
+          const thisDensity = Math.floor(luminance / 255 * (maxDensity + 1))
+          colourMapData[index] = {
+            originalRGB: { r, g, b },
+            originalHSL: hsl,
+            closestRGB: closestRgb,
+            closestHSL: colour,
+            newRGB: newRgb,
+            newHSL: { h: colour.h, s: 100, l: hsl.l },
+            density: thisDensity,
+            size: 1,
+            updateOnFrame: Math.floor(R.prng() * 4 + 1) * 15,
+            frame: 0,
+            lastLetter: null,
+            lastColour: null
+          }
+          x++
+          if (x >= features.width) {
+            x = 0
+            y++
+          }
+        }
+        colourMaps.push(colourMapData)
+        keepMaps.push(colourMapData)
+
+        // update the number of images loaded
+        imagesLoaded++
+        if (imagesLoaded === data.length) {
+          console.log('All images loaded')
+          init()
+        }
+      }
+      image.src = `data:image/png;base64,${base64Data}`
+    }
+
+    // Attach it to the body
+
+    // Loop through each data item
+    /*
+    colourMaps = []
     for (let i = 0; i < data.length; i++) {
       Object.entries(data[i]).forEach(([key, value]) => {
         data[i][key].updateOnFrame = Math.floor(R.prng() * 4 + 1) * 15
       })
+      colourMaps.push(data[i])
+      keepMaps.push(JSON.parse(JSON.stringify(data[i])))
     }
-    colourMaps = data
+    */
     clearInterval(preloadImagesTmr)
-    init()
+    // init()
   }
+
+  failCounter++
 }

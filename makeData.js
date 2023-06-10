@@ -81,7 +81,16 @@ function hslToRgb (hsl) {
 // Now we need to read in all the images from the source folder, only grab pngs
 const sourceDir = path.join(__dirname, 'source')
 const targetDir = path.join(__dirname, 'data')
+const stagingDir = path.join(__dirname, 'staging')
 const images = fs.readdirSync(sourceDir).filter(file => file.endsWith('.png'))
+// Properly shuffle the array of images
+for (let i = images.length - 1; i > 0; i--) {
+  const j = Math.floor(Math.random() * (i + 1))
+  const temp = images[i]
+  images[i] = images[j]
+  images[j] = temp
+}
+
 // Set a counter so we can give the files the correct name
 let index = 0
 // This is the max density which we know to be 35
@@ -106,6 +115,23 @@ const doIt = async () => {
       const image = await loadImage(filePath)
       // Draw the image on the canvas
       await ctx.drawImage(image, 0, 0, size.width, size.height)
+      // Now we want to inline base64 encode the image we have just scaled down onto the canvas
+      const base64Canvas = canvas.toDataURL('image/png').split(';base64,')[1]
+      const outPNG = fs.createWriteStream(path.join(stagingDir, `${indexPadded}_${size.width}.png`))
+      const streamPNG = canvas.createPNGStream()
+      // Pipe the output as a PNG, but do it as a promise that we can await
+      await new Promise((resolve, reject) => {
+        streamPNG.pipe(outPNG)
+        outPNG.on('finish', () => {
+          resolve()
+        })
+      })
+      const outputJS = `const data_${indexPadded} = '${base64Canvas}'
+      data.push(data_${indexPadded})`
+      // Now we need to write the file
+      fs.writeFileSync(outputPath, outputJS, 'utf-8')
+
+      /*
       // Get the image data
       const imageData = ctx.getImageData(0, 0, size.width, size.height)
       const data = imageData.data
@@ -174,6 +200,7 @@ const doIt = async () => {
       data.push(data_${indexPadded})`
       // Now we need to write the file
       fs.writeFileSync(outputPath, outputJS)
+      */
     }
     index++
   }
