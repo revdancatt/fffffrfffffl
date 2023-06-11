@@ -2,7 +2,7 @@
 <html>
 
 <head>
-  <title>fffffrfffffl</title>
+  <title>256 Kill-Screen</title>
   <script>
     // DATA from FERAL FILE
     const urlSearchParams = new URLSearchParams(window.location.search)
@@ -44,23 +44,50 @@
       }
     }
     const R = new Rand()
+
+    // Now we need to make a bunch of random numbers we can use, so that it doesn't matter the load order of the data
+    // and story.
+    const randomNumbers = {
+      story: {
+        numbers: [],
+        pointer: 0
+      },
+      datas: []
+    }
+    // generate 6000 numbers for the story
+    for (let i = 0; i < 6000; i++) {
+      randomNumbers.story.numbers.push(R.prng())
+    }
+    // Now we're going to do about 6 datas, which is more than we'll probably need, but it's fine
+    for (let i = 0; i < 20; i++) {
+      const thisData = {
+        numbers: [],
+        pointer: 0
+      }
+      // We may need a lot more for the datas, so we'll do 60000
+      for (let j = 0; j < 60000; j++) {
+        thisData.numbers.push(R.prng())
+      }
+      randomNumbers.datas.push(thisData)
+    }
   </script>
   <script>
     // We need to pick a size, how many sets of data to load in, and which ones to load
     const data = []
-    const loadedIds = []
+    const loadIds = []
+    const loadedOrder = []
     let thisSize = 24 * 2
-    if (R.prng() < 0.05) thisSize = 24 * 3
-    const maxImage = 214
-    const datasToUse = Math.floor(R.prng() * 3) + 3
+    if (R.prng() < 0.15) thisSize = 24 * 3
+    const maxImage = 607
+    const datasToUse = Math.floor(R.prng() * 7) + 3
     // Loop through the datas and load them in
-    while (loadedIds.length < datasToUse) {
+    while (loadIds.length < datasToUse) {
       const thisId = `${Math.floor(R.prng() * maxImage).toString().padStart(4, '0')}_${thisSize}.js`
       // Made sure we don't load in the same data twice
-      if (!loadedIds.includes(thisId)) {
-        loadedIds.push(thisId)
+      if (!loadIds.includes(thisId)) {
+        loadIds.push(thisId)
         const script = document.createElement('script')
-        script.src = `./data/${thisId}?v=0.1.5`
+        script.src = `./data/${thisId}?v=0.8.17`
         document.head.appendChild(script)
       }
     }
@@ -71,9 +98,9 @@
 
 <body>
   <canvas id="target"></canvas>
-  <script src="./makeStory.js?v=0.1.5"></script>
-  <script src="./noise.js?v=0.1.5"></script>
-  <script src="./index.js?v=0.1.5"></script>
+  <script src="./makeStory.js?v=0.8.17"></script>
+  <script src="./noise.js?v=0.8.17"></script>
+  <script src="./index.js?v=0.8.17"></script>
   <script>
     let preloadImagesTmr = null
     document.addEventListener('DOMContentLoaded', (event) => {

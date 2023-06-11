@@ -127,7 +127,9 @@ const doIt = async () => {
         })
       })
       const outputJS = `const data_${indexPadded} = '${base64Canvas}'
-      data.push(data_${indexPadded})`
+data.push(data_${indexPadded})
+loadedOrder.push('${indexPadded}_${size.width}.js')
+      `
       // Now we need to write the file
       fs.writeFileSync(outputPath, outputJS, 'utf-8')
 

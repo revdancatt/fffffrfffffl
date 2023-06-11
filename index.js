@@ -1,4 +1,4 @@
-/* global R data preloadImagesTmr Image hash thisSize maxImage datasToUse noise story */
+/* global R data preloadImagesTmr Image loadIds loadedOrder hash thisSize maxImage datasToUse randomNumbers noise story */
 
 //
 //  fxhash - fffffrfffffl
@@ -31,8 +31,8 @@ let fontCtx = null
 let fontMap = null
 let maxDensity = 0
 const densityMap = {}
-const colourMaps = []
-const keepMaps = []
+const colourMaps = Array(datasToUse).fill(null)
+const keepMaps = Array(datasToUse).fill(null)
 let startTime = null
 let frames = 0
 let lastFrameTime = 0
@@ -117,8 +117,9 @@ const makeFeatures = () => {
   features.width = thisSize
   features.height = Math.floor(features.width * ratio)
 
-  features.sourceImages = []
-  const imagesToUse = Math.floor(R.prng() * 3) + 3
+  // features.sourceImages = []
+  // const imagesToUse = datasToUse
+  /*
   while (features.sourceImages.length < imagesToUse) {
     const image = `${Math.floor(R.prng() * maxImage)}`.padStart(4, '0')
     // If the image isn't already in the array, add it
@@ -126,6 +127,7 @@ const makeFeatures = () => {
       features.sourceImages.push(image)
     }
   }
+  */
   features.currentImage = 0
   features.xShift = (R.prng() * 100 + 10) * (R.prng() < 0.5 ? -1 : 1)
   features.yShift = (R.prng() * 10 + 100) * (R.prng() < 0.5 ? -1 : 1)
@@ -174,6 +176,8 @@ const makeFeatures = () => {
       features.yPhase *= R.prng() * 2 + 1
     }
   }
+  while (Math.abs(features.xPhase) < 200) features.xPhase *= 2
+  while (Math.abs(features.yPhase) < 200) features.yPhase *= 2
 
   features.blackAndWhite = R.prng() < 0.04
 
@@ -418,8 +422,8 @@ const drawCanvas = async () => {
       }
 
       if (!fullSizeSpecial) {
-        position.width = Math.floor(position.width * (thisColourMap[index].originalHSL.l + 25) / 100)
-        position.height = Math.floor(position.height * (thisColourMap[index].originalHSL.l + 25) / 100)
+        position.width = Math.floor(position.width * ((thisColourMap[index].originalHSL.l + 25) * 1.5) / 100)
+        position.height = Math.floor(position.height * ((thisColourMap[index].originalHSL.l + 25) * 1.5) / 100)
         position.x = Math.floor(position.x - ((position.width - tileWidth) / 2))
         position.y = Math.floor(position.y - ((position.height - tileHeight) / 2))
       }
@@ -447,23 +451,23 @@ const drawCanvas = async () => {
     }
 
     features.storyTick++
-    if (features.storyTick > 2.4 * 12) {
+    if (features.storyTick > 2 * 12) {
       // Move the story along
       if (features.storyToChange === 1) {
-        features.story1 = story[features.storyPointer]
         features.story1Position = Math.floor(R.prng() * (features.oneThirdSize - features.story1.length))
       }
       if (features.storyToChange === 2) {
-        features.story2 = story[features.storyPointer]
         features.story2Position = Math.floor(R.prng() * (features.oneThirdSize - features.story2.length)) + features.oneThirdSize
       }
       if (features.storyToChange === 3) {
+        features.story1 = features.story2
+        features.story2 = features.story3
         features.story3 = story[features.storyPointer]
         features.story3Position = Math.floor(R.prng() * (features.oneThirdSize - features.story3.length)) + (features.oneThirdSize * 2)
+        features.storyPointer++
+        if (features.storyPointer >= story.length) features.storyPointer = 0
       }
-      features.storyPointer++
       // If we have gone off the end of the story go back to the start
-      if (features.storyPointer >= story.length) features.storyPointer = 0
       features.storyTick = 0
       features.storyToChange++
       if (features.storyToChange > 3) features.storyToChange = 1
@@ -474,15 +478,17 @@ const drawCanvas = async () => {
   }
 
   // If we are dumping outputs, then we want to download the image
-  if (dumpOutputs) await autoDownloadCanvas()
-
-  // Redraw in the next animation frame
-  window.requestAnimationFrame(drawCanvas)
+  if (dumpOutputs) {
+    await autoDownloadCanvas()
+  } else {
+    // Redraw in the next animation frame
+    window.requestAnimationFrame(drawCanvas)
+  }
 }
 
 const autoDownloadCanvas = async (showHash = false) => {
   const element = document.createElement('a')
-  element.setAttribute('download', `fffffrfffffl_${hash}`)
+  element.setAttribute('download', `256-kill-screen_${hash}`)
   element.style.display = 'none'
   document.body.appendChild(element)
   let imageBlob = null
@@ -614,7 +620,9 @@ const preloadImages = () => {
       // Can we load the image in an async way?
       image.onload = function () {
         ctx.drawImage(image, 0, 0)
-        console.log('Loaded image', i)
+        const thisData = loadedOrder[i]
+        // Find out which position this data take in the loadIds array
+        const initPosition = loadIds.indexOf(thisData)
 
         const imageData = ctx.getImageData(0, 0, features.width, features.height)
         const pixelData = imageData.data
@@ -663,19 +671,20 @@ const preloadImages = () => {
             newHSL: { h: colour.h, s: 100, l: hsl.l },
             density: thisDensity,
             size: 1,
-            updateOnFrame: Math.floor(R.prng() * 4 + 1) * 15,
+            updateOnFrame: Math.floor(randomNumbers.datas[initPosition].numbers[randomNumbers.datas[initPosition].pointer] * 4 + 1) * 15,
             frame: 0,
             lastLetter: null,
             lastColour: null
           }
+          randomNumbers.datas[initPosition].pointer++
           x++
           if (x >= features.width) {
             x = 0
             y++
           }
         }
-        colourMaps.push(colourMapData)
-        keepMaps.push(colourMapData)
+        colourMaps[initPosition] = colourMapData
+        keepMaps[initPosition] = JSON.parse(JSON.stringify(colourMapData))
 
         // update the number of images loaded
         imagesLoaded++

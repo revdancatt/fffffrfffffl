@@ -1,4 +1,4 @@
-/* global R */
+/* global randomNumbers */
 
 const chain = {
   10: {
@@ -9879,11 +9879,13 @@ const story = []
 // First grab the keys from the chain
 const keys = Object.keys(chain)
 // Pick the first word at random
-let firstWord = keys[Math.floor(Math.random() * keys.length)]
+let firstWord = keys[Math.floor(randomNumbers.story.numbers[randomNumbers.story.pointer] * keys.length)]
+randomNumbers.story.pointer++
 // Now get the second level keys from the chain for this word
 let secondKeys = Object.keys(chain[firstWord])
 // Pick the second word at random
-let secondWord = secondKeys[Math.floor(Math.random() * secondKeys.length)]
+let secondWord = secondKeys[Math.floor(randomNumbers.story.numbers[randomNumbers.story.pointer] * secondKeys.length)]
+randomNumbers.story.pointer++
 // Now we have everything we need to start the story, we're going to need an empty chunk
 const chunk = [firstWord, secondWord]
 // Now we are going to generate 100 chunks
@@ -9895,15 +9897,17 @@ for (let i = 0; i < 1000 * 3; i++) {
     // Check to see if the first word and second word are in the chain
     if (chain[firstWord] && chain[firstWord][secondWord]) {
       // Randomly pick the third word from the array held in the firstword second word chain
-      thirdWord = chain[firstWord][secondWord][Math.floor(R.prng() * chain[firstWord][secondWord].length)]
+      thirdWord = chain[firstWord][secondWord][Math.floor(randomNumbers.story.numbers[randomNumbers.story.pointer] * chain[firstWord][secondWord].length)]
     } else {
       // Pick a new random secondWord by shifting the secondWord into the firstWord
       firstWord = secondWord
       // Just incase we have an edgecase and don't find one
-      if (!chain[firstWord]) firstWord = keys[Math.floor(Math.random() * keys.length)]
+      if (!chain[firstWord]) firstWord = keys[Math.floor(randomNumbers.story.numbers[randomNumbers.story.pointer] * keys.length)]
       secondKeys = Object.keys(chain[firstWord])
-      secondWord = secondKeys[Math.floor(Math.random() * secondKeys.length)]
+      secondWord = secondKeys[Math.floor(randomNumbers.story.numbers[randomNumbers.story.pointer + 1] * secondKeys.length)]
     }
+    randomNumbers.story.pointer += 2
+    if (randomNumbers.story.pointer >= randomNumbers.story.numbers.length - 1) randomNumbers.story.pointer = 0
   }
   // Now we have a third word, add it to the chunk
   chunk.push(thirdWord)
